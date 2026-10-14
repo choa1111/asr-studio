@@ -1,0 +1,91 @@
+# Python
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.venv/
+*.pyc
+
+# Local env
+.env
+.env.*
+!.env.example
+.aws/
+.codex/
+.agents/
+*.pem
+*.key
+compose.override.yaml
+compose.override.yml
+docker-compose.override.yaml
+docker-compose.override.yml
+custom-settings.yaml
+config/*.local.yaml
+config/*.local.yml
+
+# Private prompts and user-authored glossaries (public defaults live separately)
+/config/prompts/
+/config/glossaries/
+
+# Internal development records (keep locally, exclude from public source)
+/codestable/
+/docs/plans/
+/docs/superpowers/
+/AGENTS.md
+
+# IDE and local workflow state
+.idea/
+.vscode/
+.zcf/
+.DS_Store
+.worktrees/
+.antigravitycli/*
+.playwright-mcp/*
+
+# Input assets
+data/input/videos/*
+!data/input/videos/.gitkeep
+data/input/audio/*
+!data/input/audio/.gitkeep
+data/input/reference/*
+!data/input/reference/.gitkeep
+data/uploads/*
+!data/uploads/.gitkeep
+
+# Intermediate and outputs
+data/jobs/*
+!data/jobs/.gitkeep
+data/intermediate/asr/*
+!data/intermediate/asr/.gitkeep
+data/intermediate/ocr/*
+!data/intermediate/ocr/.gitkeep
+data/intermediate/extracted_text/*
+!data/intermediate/extracted_text/.gitkeep
+data/intermediate/chunks/*
+!data/intermediate/chunks/.gitkeep
+data/intermediate/aligned/*
+!data/intermediate/aligned/.gitkeep
+data/intermediate/classified/*
+!data/intermediate/classified/.gitkeep
+data/intermediate/refined/*
+!data/intermediate/refined/.gitkeep
+data/output/review/*
+!data/output/review/.gitkeep
+data/output/final/*
+!data/output/final/.gitkeep
+data/output/logs/*
+!data/output/logs/.gitkeep
+
+# Temporary debug artifacts
+tmp/
+task-list-readable.png
+task-list-readable-mobile.png
+tmp_*
+*.tmp
+
+.serena/*
+.gemini/*
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/

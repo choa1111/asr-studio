@@ -1,0 +1,164 @@
+project:
+  name: ASR Studio
+  version: 0.1.0
+  description: 音视频转文字与校对工作台
+
+runtime:
+  profile: wsl2_gpu_high_accuracy
+  environment: local
+  log_level: INFO
+
+profiles:
+  local_cpu:
+    device: cpu
+    asr_compute_type: int8
+    asr_model_size: small
+    batch_size: 4
+    temp_dir: /tmp/asr-studio
+    cache_dir: ~/.cache/asr-studio
+  wsl2_gpu:
+    device: cuda
+    asr_compute_type: float16
+    asr_model_size: medium
+    batch_size: 8
+    temp_dir: /tmp/asr-studio
+    cache_dir: ~/.cache/asr-studio
+  wsl2_gpu_high_accuracy:
+    device: cuda
+    asr_compute_type: float16
+    asr_model_size: large-v3-turbo
+    batch_size: 4
+    beam_size: 8
+    temp_dir: /tmp/asr-studio
+    cache_dir: ~/.cache/asr-studio
+paths:
+  videos_dir: data/input/videos
+  audio_dir: data/input/audio
+  reference_dir: data/input/reference
+  asr_dir: data/intermediate/asr
+  ocr_dir: data/intermediate/ocr
+  extracted_text_dir: data/intermediate/extracted_text
+  chunks_dir: data/intermediate/chunks
+  aligned_dir: data/intermediate/aligned
+  review_dir: data/output/review
+  final_dir: data/output/final
+  logs_dir: data/output/logs
+
+audio:
+  output_format: wav
+  sample_rate: 16000
+  channels: 1
+  overwrite: false
+  supported_video_ext:
+    - .mp4
+    - .mkv
+    - .mov
+    - .webm
+  supported_audio_ext:
+    - .wav
+    - .mp3
+    - .m4a
+    - .flac
+
+asr:
+  engine: faster-whisper
+  language: zh
+  beam_size: 5
+  vad_filter: true
+  condition_on_previous_text: true
+  word_timestamps: false
+  initial_prompt: ""
+  model_cache_subdir: faster-whisper
+
+reference:
+  enabled: true
+  allow_pdf: true
+  allow_txt: true
+  allow_md: true
+  allow_docx: false
+  prefer_existing_text: true
+  run_ocr_when_needed: true
+  ai_ocr_backend: codex_api
+  gemini_ocr_model: Gemini 3.5 Flash (High)
+  gemini_ocr_fallback_model: ""
+  codex_ocr_model: gpt-6-luna
+  codex_ocr_reasoning_effort: high
+  # 默认每 5 秒新增一页，不等待前一页完成；最多允许 40 个请求同时在途，Web 任务可单独覆盖。
+  codex_ocr_max_concurrency: 40
+  codex_ocr_submit_interval_seconds: 5.0
+  ocr_timeout_seconds: 480
+  ocr_languages:
+    - chi_sim
+    - eng
+
+segmentation:
+  enabled: true
+  min_chars_per_block: 60
+  max_chars_per_block: 500
+  split_on_empty_line: true
+  merge_short_lines: true
+
+classification:
+  enabled: true
+  allow_types:
+    - quote
+    - lecture
+    - qa
+  default_type: lecture
+  qa_section_title: "提问环节"
+
+llm:
+  enabled: false
+  provider: openai
+  model: gpt-6.1-sol
+  gemini_model: Gemini 3.1 Pro (High)
+  gemini_fallback_model: ""
+  backends:
+    - codex_api
+  reasoning_effort: high
+  temperature: 0.1
+  max_output_tokens: 4000
+  timeout_seconds: 180
+  # 检测到程序回退、Unicode 替换字符或 `# source` 占位标题时，自动重新润色一次；可设为 0 关闭。
+  refinement_validation_retry_count: 1
+
+prompts:
+  classify_and_correct: config/default_prompts/classify_and_correct.md
+  final_cleanup: config/default_prompts/final_cleanup.md
+
+output:
+  write_review_json: true
+  write_final_markdown: true
+  final_markdown_filename: final.md
+  review_json_filename: review.json
+  include_timestamps_in_final: false
+  include_reference_in_final: false
+  include_notes_in_final: false
+
+export:
+  quote_prefix: "> "
+  markdown_title_template: "# {book_name} {chapter} 整理稿"
+  qa_heading: "## 提问环节"
+  blank_line_between_blocks: true
+
+book:
+  book_name: ""
+  chapter: ""
+  source_type: auto
+  source_link: ""
+  source_pdf: ""
+
+pipeline:
+  stop_on_error: true
+  stages:
+    - extract_audio
+    - transcribe
+    - prepare_reference
+    - segment
+    - correct
+    - export
+
+dev:
+  dry_run: false
+  save_debug_files: true
+  verbose_exceptions: true

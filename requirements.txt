@@ -1,0 +1,10 @@
+pydantic>=2.12,<2.13
+PyYAML>=6.0,<7
+fastapi>=0.135,<0.136
+uvicorn>=0.41,<0.42
+faster-whisper>=1.1,<2
+# faster-whisper 1.2.1 仍传入 metadata_errors；PyAV 19 已删除该参数，与 Docker 保持一致。
+av==16.1.0
+pypdf>=5.0,<6
+rapidfuzz>=3.9,<4
+pytest>=8.0,<9

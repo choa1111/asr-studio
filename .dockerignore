@@ -1,0 +1,59 @@
+# Repository and local developer state
+.git
+.gitignore
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.idea/
+.vscode/
+.aws/
+.codex/
+.agents/
+.serena/
+.gemini/
+.antigravitycli/
+.playwright-mcp/
+.worktrees/
+.zcf/
+*.pem
+*.key
+codestable/
+AGENTS.md
+docs/
+tests/
+task-list-readable.png
+task-list-readable-mobile.png
+
+# Only public settings and English default prompts enter the build context.
+# Private prompts and user-authored glossaries are never packaged.
+# Local custom settings and credentials belong in read-only runtime mounts, never the image.
+config/*
+!config/settings.yaml
+!config/default_prompts/
+config/default_prompts/*
+!config/default_prompts/classify_and_correct.md
+!config/default_prompts/conversation_cleanup.md
+!config/default_prompts/final_cleanup.md
+
+# Frontend build outputs and installed packages (the build stage uses npm ci)
+frontend/node_modules/
+frontend/dist/
+
+# Runtime data and local secrets must never enter an image build context
+.env
+.env.*
+**/.env
+**/.env.*
+compose.override.yaml
+compose.override.yml
+docker-compose.override.yaml
+docker-compose.override.yml
+custom-settings.yaml
+data/
+tmp/
+*.tmp
+*.pyc
+
+# Local machine artifacts
+.DS_Store
