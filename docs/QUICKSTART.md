@@ -20,10 +20,13 @@ TRANSCRIPT_PROFILE=local_cpu .venv/bin/python -m uvicorn api_server:app --host 1
 
 ## 开始转录
 
-1. 在「运行设置」确认 CPU profile 与 Whisper 候选，或按 [模型说明](ASR_BACKENDS.md) 安装所需 GPU 后端。
-2. 通过「单阶段运行」选择音频抽取或语音转录，上传材料后执行；纯转录无需 AI 校对 API。
-3. 需要 OCR / AI 校对时，配置自己可用的兼容 Responses API 服务、API Key 和模型 ID。默认本地地址仅为示例，应用不会安装网关；模型 ID 需与服务实际支持的一致。
-4. 在任务详情下载产物，保留原始 ASR 文本和中间结果，人工复核最终稿。
+1. 页面语言可切换简体中文、English、日本語；这只改变显示，不改变录音语言或已填写的表单。
+2. 在「运行设置」确认 CPU profile、Whisper 候选和音频语言。既有默认仍为中文；日语选 `ja`，英语选 `en`，不确定时可对支持的模型选 `auto`。任务页可单独覆盖；旧任务使用原快照。可选 GPU 后端见 [模型说明](ASR_BACKENDS.md)。
+3. 通过「单阶段运行」选择音频抽取或语音转录，上传材料后执行；纯转录无需 AI 校对 API。
+4. 需要 OCR / AI 校对时，配置自己可用的兼容 Responses API 服务、API Key 和模型 ID。默认本地地址仅为示例，应用不会安装网关；模型 ID 需与服务实际支持的一致。日英正文保留原语言，不因界面语言而翻译。
+5. 在任务详情下载产物，保留原始 ASR 文本和中间结果，人工复核最终稿。
+
+三语入口：[简体中文](../README.md) · [English](../README.en.md) · [日本語](../README.ja.md)。批量与 CLI 示例见 [命令行与处理指南](CLI_GUIDE.md)。
 
 运行数据在 `data/` 中；不要把材料、密钥、任务 JSON 或日志加入公开仓库。Web 设置保存在 `data/jobs/frontend-settings.json`，应视为凭据文件。
 

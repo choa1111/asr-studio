@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from src.asr.registry import get_candidate
+from src.asr.registry import get_candidate, language_metadata, validate_candidate_language
 
 
 def execute(request: dict) -> list[dict]:
@@ -17,6 +17,9 @@ def execute(request: dict) -> list[dict]:
     import torch
 
     candidate = get_candidate(request["candidate"])
+    language = request.get("language", request["parameters"].get("language", "zh"))
+    validate_candidate_language(candidate, language)
+    parameters = {**request["parameters"], "language": language}
     if request["device"] == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA 不可用；不自动改用 CPU")
     torch.set_num_threads(4)
@@ -41,7 +44,7 @@ def execute(request: dict) -> list[dict]:
         if not np.isfinite(audio).all():
             raise ValueError(f"音频包含非有限 PCM: {item['path']}")
         duration = len(audio) / 16000
-        metadata = {
+        metadata = {**language_metadata(language, []),
             "candidate": candidate.id, "model_id": candidate.model, "model_revision": candidate.revision,
             "runtime_versions": versions, "worker_python": sys.executable, "duration_seconds": duration,
             "silence_detection": "faster-whisper CPU Silero VAD (whole-file gate and recorded speech regions)",
@@ -54,10 +57,10 @@ def execute(request: dict) -> list[dict]:
                 loading = time.monotonic()
                 if candidate.engine == "qwen-asr":
                     from src.asr.qwen3_backend import QwenBackend
-                    backend = QwenBackend(candidate, request["device"], Path(request["cache"]), request["parameters"])
+                    backend = QwenBackend(candidate, request["device"], Path(request["cache"]), parameters)
                 else:
                     from src.asr.funasr_backend import FunasrBackend
-                    backend = FunasrBackend(candidate, request["device"], Path(request["cache"]), request["parameters"])
+                    backend = FunasrBackend(candidate, request["device"], Path(request["cache"]), parameters)
                 load_seconds = time.monotonic() - loading
             inference = time.monotonic()
             segments, details = backend.transcribe(audio, 16000, duration, request["terms"],
@@ -81,7 +84,7 @@ def execute(request: dict) -> list[dict]:
             ) if candidate.engine == "qwen-asr" else (
                 "encoder=float32,decoder=bf16" if candidate.id == "fun-asr-nano" and request["device"] == "cuda" else "float32"
             ),
-            "language": "zh", "segments": segments,
+            "language": metadata["language"], "segments": segments,
             "full_text": "\n".join(s["text"] for s in segments if s["text"]).strip(), "metadata": metadata,
         })
     return outputs

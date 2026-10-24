@@ -4,7 +4,7 @@ from pathlib import Path
 import hashlib
 from typing import Any
 
-from src.asr.registry import Candidate
+from src.asr.registry import Candidate, language_metadata, validate_candidate_language
 from src.asr.segmentation import aligned_segments, bounded_speech_intervals
 
 PUNC_MODEL = "funasr/ct-punc"
@@ -21,6 +21,8 @@ class FunasrBackend:
         if device == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA 不可用；不自动改用 CPU")
         self.candidate = candidate
+        self.language = parameters.get("language", "zh")
+        validate_candidate_language(candidate, self.language)
         self.device = device
         self.limit = parameters.get("max_new_tokens", 2048)
         self.chunk_seconds = parameters.get("chunk_seconds", 30.0)
@@ -72,6 +74,11 @@ class FunasrBackend:
                    speech_regions: list[dict[str, int]]) -> tuple[list[dict], dict]:
         import torch
 
+        language = getattr(self, "language", "zh")
+        validate_candidate_language(self.candidate, language)
+        # FunASR 1.3.0 maps these codes internally; newer SDK examples use
+        # Chinese names, which this pinned version silently treats as auto.
+        sdk_language = language
         step = max(1, round(self.chunk_seconds * sample_rate))
         segments = []
         intervals = []
@@ -81,7 +88,7 @@ class FunasrBackend:
             intervals.append([begin / sample_rate, finish / sample_rate])
             if not bool(torch.any(pcm)):
                 continue
-            kwargs = {"language": "zh", "itn": True, "max_length": self.limit}
+            kwargs = {"language": sdk_language, "itn": True, "max_length": self.limit}
             if self.candidate.id == "fun-asr-nano":
                 kwargs.update(hotwords=terms, llm_dtype=self.decoder_dtype,
                               llm_kwargs={"do_sample": False, "repetition_penalty": 1.1})
@@ -111,9 +118,10 @@ class FunasrBackend:
                 item["id"] = len(segments) + 1
                 segments.append(item)
         return segments, {
+            **language_metadata(language, []),
             "timestamp_source": "paraformer_native_ms" if self.punc else "silero_vad_pcm_slice",
             "timestamp_granularity": "text_segment_from_character_or_word_alignment" if self.punc else "vad_audio_chunk",
-            "resolved_parameters": {"batch_size": 1, "max_new_tokens": self.limit,
+            "resolved_parameters": {"language": sdk_language, "batch_size": 1, "max_new_tokens": self.limit,
                                     "encoder_dtype": "float32", "decoder_dtype": self.decoder_dtype if not self.punc else "float32",
                                     "hotwords": terms, "do_sample": False if not self.punc else None,
                                     "repetition_penalty": 1.1 if not self.punc else None},

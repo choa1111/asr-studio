@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../i18n";
 import { NSelect } from "naive-ui";
 import { computed } from "vue";
 
@@ -13,16 +14,16 @@ const emit = defineEmits<{
   "update:modelValue": [value: string | null];
 }>();
 
-const profileLabels: Record<string, string> = {
-  local_cpu: "本机 CPU（标准）",
-  local_cpu_high_accuracy: "本机 CPU（高精度）",
-  wsl2_gpu: "WSL2 GPU（标准）",
-  wsl2_gpu_high_accuracy: "WSL2 GPU（高精度）",
-  wsl2_gpu_max_accuracy: "WSL2 GPU（最高精度）",
-};
+const profileLabels = computed<Record<string, string>>(() => ({
+  local_cpu: t('本机 CPU（标准）'),
+  local_cpu_high_accuracy: t('本机 CPU（高精度）'),
+  wsl2_gpu: t('WSL2 GPU（标准）'),
+  wsl2_gpu_high_accuracy: t('WSL2 GPU（高精度）'),
+  wsl2_gpu_max_accuracy: t('WSL2 GPU（最高精度）'),
+}));
 
 function profileLabel(value: string): string {
-  return profileLabels[value] ?? `自定义配置（${value}）`;
+  return profileLabels.value[value] ?? t('自定义配置（{p0}）', { p0: value });
 }
 
 const selectOptions = computed(() => props.options.map((value) => ({ label: profileLabel(value), value })));
@@ -34,11 +35,11 @@ const selectOptions = computed(() => props.options.map((value) => ({ label: prof
     :value="modelValue"
     :options="selectOptions"
     :loading="loading"
-    :placeholder="placeholder ?? '选择配置方案'"
+    :placeholder="placeholder ?? t('选择配置方案')"
     clearable
     @update:value="emit('update:modelValue', $event)"
   />
-  <p class="prompt-hint">Whisper 的模型、精度和 beam 参数仅用于 Whisper；其它 ASR 不使用这些参数。</p>
+  <p class="prompt-hint">{{ t('Whisper 的模型、精度和 beam 参数仅用于 Whisper；其它 ASR 不使用这些参数。') }}</p>
   </div>
 </template>
 

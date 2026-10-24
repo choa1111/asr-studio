@@ -22,6 +22,7 @@ class ModelOverrides:
     ocr_reasoning_effort: str | None = None
     ocr_max_concurrency: int | None = None
     ocr_submit_interval_seconds: float | None = None
+    asr_language: str | None = None
     asr_candidate: str | None = None
     # None 继承快照，空字符串显式关闭双 ASR。
     secondary_asr_candidate: str | None = None
@@ -70,6 +71,19 @@ def resolve_asr_overrides(candidate: str | None, secondary: str | None,
     return candidate, secondary
 
 
+def resolve_asr_language(candidate: str | None, secondary: str | None,
+                         language: str, override: str | None) -> str:
+    from src.asr.registry import get_candidate, validate_candidate_language
+    language = normalize_override_value(override, label="音频语言") if override is not None else language
+    try:
+        validate_candidate_language(get_candidate(candidate), language)
+        if secondary:
+            validate_candidate_language(get_candidate(secondary), language)
+    except ValueError as exc:
+        raise SettingsOverrideError(str(exc)) from exc
+    return language
+
+
 def apply_model_overrides(loaded_settings: LoadedSettings, overrides: ModelOverrides) -> None:
     llm_model = normalize_override_value(overrides.llm_model, label="阶段 6 模型")
     llm_reasoning_effort = normalize_override_value(overrides.llm_reasoning_effort, label="阶段 6 reasoning effort")
@@ -84,6 +98,8 @@ def apply_model_overrides(loaded_settings: LoadedSettings, overrides: ModelOverr
     candidate, secondary = resolve_asr_overrides(
         loaded_settings.settings.asr.candidate,
         loaded_settings.settings.asr.secondary_candidate, overrides)
+    language = resolve_asr_language(candidate, secondary, loaded_settings.settings.asr.language, overrides.asr_language)
+    loaded_settings.settings.asr.language = language
     if overrides.asr_candidate is not None:
         loaded_settings.settings.asr.candidate = candidate
     if overrides.secondary_asr_candidate is not None:
@@ -119,13 +135,16 @@ def apply_model_overrides_to_raw_settings(payload: dict, overrides: ModelOverrid
         overrides.ocr_submit_interval_seconds,
     )
 
-    if overrides.asr_candidate is not None or overrides.secondary_asr_candidate is not None:
+    if overrides.asr_candidate is not None or overrides.secondary_asr_candidate is not None or overrides.asr_language is not None:
         asr_payload = payload.get("asr", {})
         if not isinstance(asr_payload, dict):
             raise SettingsOverrideError("配置字段 asr 必须是对象")
         candidate, secondary = resolve_asr_overrides(
             asr_payload.get("candidate"), asr_payload.get("secondary_candidate"), overrides)
+        language = resolve_asr_language(candidate, secondary, asr_payload.get("language", "zh"), overrides.asr_language)
         asr_payload = payload.setdefault("asr", {})
+        if overrides.asr_language is not None:
+            asr_payload["language"] = language
         if overrides.asr_candidate is not None:
             asr_payload["candidate"] = candidate
         if overrides.secondary_asr_candidate is not None:

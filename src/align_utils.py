@@ -201,10 +201,12 @@ def split_text_by_punctuation(text: str, max_chars_per_block: int) -> list[str]:
     chunks: list[str] = []
     current = ""
     for sentence in sentences:
-        part = sentence.strip()
-        if not part:
+        if not sentence.strip():
             continue
-        candidate = f"{current}{part}" if current else part
+        # Keep the source whitespace between sentences; stripping each part
+        # glues English words together at ?/! boundaries.
+        part = sentence.rstrip()
+        candidate = f"{current}{part}" if current else part.lstrip()
         if current and len(candidate) > max_chars_per_block:
             chunks.append(current.strip())
             current = part

@@ -78,7 +78,17 @@ a { color: var(--primary); }
 .app-header { display: flex; gap: 16px; align-items: center; min-height: 64px; padding: 12px 32px; border-bottom: 1px solid var(--border-subtle); background: var(--surface-canvas); }
 .page-context { display: flex; align-items: center; gap: 12px; min-width: 0; color: var(--text-muted); font-size: 13px; }
 .page-context h1 { margin: 0; color: var(--text-primary); font-size: 14px; font-weight: 600; }
-.theme-toggle-btn { margin-left: auto; }
+.locale-control { margin-left: auto; flex: 0 0 auto; }
+.locale-control select { max-width: 112px; min-height: 34px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-raised); color: var(--text-primary); }
+.theme-toggle-btn { flex-shrink: 0; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.page-context { flex: 0 1 auto; overflow-wrap: anywhere; }
+.page-context h1 { line-height: 1.4; }
+@media (max-width: 600px) {
+  .locale-control select { max-width: 100px; }
+  .page-context { flex: 1 1 60px; }
+  .locale-control { margin-left: 0; }
+}
 .app-header svg { display: block; width: 20px; height: 20px; }
 .app-header .mobile-menu-button { display: none; }
 .app-content { max-width: 1600px; margin: 0 auto; padding: 28px 32px 64px; min-width: 0; }
@@ -122,8 +132,13 @@ a { color: var(--primary); }
 .n-grid > *, .n-form-item, .n-form-item-blank, .n-space > *, .n-flex > * { min-width: 0; }
 .n-alert, .n-card-header__main { overflow-wrap: anywhere; }
 .n-radio-group { max-width: 100%; }
-.n-button { max-width: 100%; }
-.n-button .n-button__content { min-width: 0; }
+.n-button { max-width: 100%; height: auto; min-height: var(--n-height, 34px); padding-block: 6px; }
+.n-button .n-button__content { min-width: 0; white-space: normal; overflow-wrap: anywhere; text-align: center; }
+/* Naive button groups otherwise reserve one fixed row, letting wrapped options overlap the next field. */
+.n-radio-group.n-radio-group--button-group { height: auto; line-height: normal; }
+.n-radio-group--button-group .n-radio-button { height: auto; min-height: var(--n-height, 34px); max-width: 100%; white-space: normal; line-height: normal; }
+.n-radio-button .n-radio__label { display: block; white-space: normal; line-height: 1.5; padding-block: 6px; overflow-wrap: anywhere; }
+.n-form-item-label, .prompt-hint, .form-section-title { overflow-wrap: anywhere; }
 .n-empty { padding: 24px 0; }
 
 /* Shared task and server-file primitives. */

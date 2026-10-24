@@ -1,25 +1,28 @@
 <script setup lang="ts">
+import { t, locale, localeOptions, setLocale } from "./i18n";
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from "vue";
 import { useRoute } from "vue-router";
 import {
   NConfigProvider, NDialogProvider, NMessageProvider, NButton,
-  NDrawer, NDrawerContent, darkTheme, type GlobalThemeOverrides,
+  NDrawer, NDrawerContent, darkTheme, zhCN, enUS, jaJP, dateZhCN, dateEnUS, dateJaJP, type GlobalThemeOverrides,
 } from "naive-ui";
 import NavBar from "./components/NavBar.vue";
 
+const naiveLocales = { "zh-CN": zhCN, en: enUS, ja: jaJP };
+const naiveDateLocales = { "zh-CN": dateZhCN, en: dateEnUS, ja: dateJaJP };
 const route = useRoute();
 const drawerOpen = ref(false);
 const menuButton = ref<InstanceType<typeof NButton> | null>(null);
 const isDark = ref(localStorage.getItem("transcript-pipeline:theme") === "dark");
-const pages: Record<string, [string, string]> = {
-  "/single-job": ["任务", "新建单任务"],
-  "/batch-job": ["任务", "批量任务"],
-  "/jobs": ["任务", "任务列表"],
-  "/stage-runner": ["工具", "单阶段运行"],
-  "/pdf-book-ocr": ["工具", "PDF 书籍 OCR"],
-  "/settings": ["设置", "运行设置"],
-};
-const pageContext = computed(() => pages[route.path] ?? ["工作台", "ASR Studio"]);
+const pages = computed<Record<string, [string, string]>>(() => ({
+  "/single-job": [t('任务'), t('新建单任务')],
+  "/batch-job": [t('任务'), t('批量任务')],
+  "/jobs": [t('任务'), t('任务列表')],
+  "/stage-runner": [t('工具'), t('单阶段运行')],
+  "/pdf-book-ocr": [t('工具'), t('PDF 书籍 OCR')],
+  "/settings": [t('设置'), t('运行设置')],
+}));
+const pageContext = computed(() => pages.value[route.path] ?? [t('工作台'), "ASR Studio"]);
 function updateClass() {
   document.documentElement.classList.toggle("dark-mode", isDark.value);
   document.documentElement.style.colorScheme = isDark.value ? "dark" : "light";
@@ -80,23 +83,29 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => {
 </script>
 
 <template>
-  <n-config-provider :theme="isDark ? darkTheme : null" :theme-overrides="themeOverrides">
+  <n-config-provider :locale="naiveLocales[locale]" :date-locale="naiveDateLocales[locale]" :theme="isDark ? darkTheme : null" :theme-overrides="themeOverrides">
     <n-dialog-provider>
       <n-message-provider>
         <div class="app-shell">
-          <a class="skip-link" href="#main-content">跳至主要内容</a>
-          <aside class="app-sidebar" aria-label="工作台导航">
-            <div class="app-brand"><span class="app-brand__mark" aria-hidden="true">文</span><div><strong>ASR Studio</strong><small>语音转文字</small></div></div>
+          <a class="skip-link" href="#main-content">{{ t('跳至主要内容') }}</a>
+          <aside class="app-sidebar" :aria-label="t('工作台导航')">
+            <div class="app-brand"><span class="app-brand__mark" aria-hidden="true">{{ t('文') }}</span><div><strong>ASR Studio</strong><small>{{ t('语音转文字') }}</small></div></div>
             <NavBar />
-            <p class="sidebar-note">上传 · 整理 · 人工校对</p>
+            <p class="sidebar-note">{{ t('上传 · 整理 · 人工校对') }}</p>
           </aside>
           <div class="app-workspace">
             <header class="app-header">
-              <n-button ref="menuButton" class="mobile-menu-button" quaternary aria-label="打开导航菜单" :aria-expanded="drawerOpen" aria-controls="mobile-navigation" @click="drawerOpen = true">
+              <n-button ref="menuButton" class="mobile-menu-button" quaternary :aria-label="t('打开导航菜单')" :aria-expanded="drawerOpen" aria-controls="mobile-navigation" @click="drawerOpen = true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
               </n-button>
               <div class="page-context"><span>{{ pageContext[0] }}</span><span aria-hidden="true">/</span><h1>{{ pageContext[1] }}</h1></div>
-              <n-button quaternary class="theme-toggle-btn" @click="toggleTheme" :aria-label="isDark ? '切换至浅色模式' : '切换至深色模式'" :title="isDark ? '切换至浅色模式' : '切换至深色模式'">
+              <label class="locale-control">
+                <span class="visually-hidden">{{ t('界面语言') }}</span>
+                <select :value="locale" :aria-label="t('界面语言')" @change="setLocale(($event.target as HTMLSelectElement).value)">
+                  <option v-for="option in localeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <n-button quaternary class="theme-toggle-btn" @click="toggleTheme" :aria-label="isDark ? t('切换至浅色模式') : t('切换至深色模式')" :title="isDark ? t('切换至浅色模式') : t('切换至深色模式')">
                 <svg v-if="isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
                 <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
               </n-button>

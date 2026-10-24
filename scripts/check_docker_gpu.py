@@ -16,6 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check container CUDA; optionally transcribe a short audio sample on GPU.")
     parser.add_argument("--audio", type=Path, help="Short audio file mounted inside the container")
+    parser.add_argument("--asr-language", default="zh", help="Whisper audio language code, or auto (default: zh)")
     parser.add_argument("--model", default="small", help="faster-whisper model to use with --audio (default: small)")
     args = parser.parse_args()
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -89,7 +90,7 @@ def main() -> int:
 
             cache_dir = Path.home() / ".cache/asr-studio/faster-whisper"
             model = WhisperModel(args.model, device="cuda", compute_type="float16", download_root=str(cache_dir))
-            raw_segments, _ = model.transcribe(str(args.audio), language="zh", vad_filter=False)
+            raw_segments, _ = model.transcribe(str(args.audio), language=None if args.asr_language == "auto" else args.asr_language, vad_filter=False)
             # Inference is lazy: only consuming the iterator proves CUDA transcription ran.
             segments = list(raw_segments)
         except Exception as exc:

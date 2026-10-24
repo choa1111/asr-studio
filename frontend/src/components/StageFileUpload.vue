@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t, slotLabel } from "../i18n";
 import { NButton, NFlex, NTag, useMessage } from "naive-ui";
 import { computed, ref, watch } from "vue";
 
@@ -43,9 +44,9 @@ async function handleFileChange(event: Event) {
     const response = await uploadStageInput(props.stageName, props.slot.key, file);
     uploadedName.value = response.name;
     emit("update:modelValue", response.path);
-    message.success(`已上传${props.slot.label}：${response.name}`);
+    message.success(t('已上传{p0}：{p1}', { p0: slotLabel(props.slot.key, props.slot.label), p1: response.name }));
   } catch (caught) {
-    message.error(caught instanceof Error ? caught.message : `${props.slot.label}上传失败`);
+    message.error(caught instanceof Error ? caught.message : t('{p0}上传失败', { p0: slotLabel(props.slot.key, props.slot.label) }));
   } finally {
     uploading.value = false;
     input.value = "";
@@ -63,7 +64,7 @@ async function handleFileChange(event: Event) {
       @change="handleFileChange"
     />
     <n-button secondary type="primary" :loading="uploading" @click="openFilePicker">
-      选择{{ slot.label }}
+      {{ t('选择{p0}', { p0: slotLabel(slot.key, slot.label) }) }}
     </n-button>
     <n-tag v-if="uploadedName" size="small" type="success" :bordered="false" class="stage-file-upload__name">
       {{ uploadedName }}

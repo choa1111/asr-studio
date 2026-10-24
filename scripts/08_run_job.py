@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", help="配置文件路径，默认使用 config/settings.yaml")
     parser.add_argument("--profile", help="运行 profile，覆盖配置文件中的默认 profile")
+    parser.add_argument("--asr-language", help="音频语言 auto/zh/en/ja；省略继承配置；Whisper 亦接受原有其他语言代码")
     parser.add_argument("--asr-candidate", help="ASR 候选 ID，写入任务配置快照")
     parser.add_argument("--secondary-asr-candidate", help="第二 ASR 候选，串行运行并联合校对；空字符串关闭")
     parser.add_argument("--backend", choices=["codex_api", "agy", "codex_cli", "both"], help="覆盖阶段 6 使用的后端")
@@ -68,7 +69,7 @@ def main() -> int:
             output_dir=args.output_dir,
             content_type=args.content_type,
             profile=args.profile,
-            asr_candidate=args.asr_candidate,
+            asr_candidate=args.asr_candidate, asr_language=args.asr_language,
             secondary_asr_candidate=args.secondary_asr_candidate,
             backend=args.backend,
             model=args.model,

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../i18n";
 import { NButton, NFlex, NTag, useMessage } from "naive-ui";
 import { ref } from "vue";
 
@@ -37,9 +38,9 @@ async function handleFileChange(event: Event) {
     const response = await uploadFile(file, props.kind);
     uploadedName.value = response.name;
     emit("update:modelValue", response.path);
-    message.success(`已上传：${response.name}`);
+    message.success(t('已上传：{p0}', { p0: response.name }));
   } catch (caught) {
-    message.error(caught instanceof Error ? caught.message : "上传失败");
+    message.error(caught instanceof Error ? caught.message : t('上传失败'));
   } finally {
     uploading.value = false;
     input.value = "";
@@ -57,7 +58,7 @@ async function handleFileChange(event: Event) {
       @change="handleFileChange"
     />
     <n-button secondary type="primary" :loading="uploading" @click="openFilePicker" class="remote-upload__button">
-      {{ buttonText ?? `上传本机${label}` }}
+      {{ buttonText ?? t('上传本机{p0}', { p0: label }) }}
     </n-button>
     <n-tag v-if="uploadedName" size="small" type="success" :bordered="false" class="remote-upload__tag">
       {{ uploadedName }}

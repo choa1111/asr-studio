@@ -333,10 +333,13 @@ def transcribe_audio_file(
     settings = loaded_settings.settings
     beam_size = profile.beam_size if profile.beam_size is not None else settings.asr.beam_size
 
+    supported = getattr(model, "supported_languages", None)
+    if settings.asr.language != "auto" and supported is not None and settings.asr.language not in supported:
+        raise AsrTranscriptionError(f"当前 Whisper 模型不支持音频语言: {settings.asr.language}")
     try:
         raw_segments, info = model.transcribe(
             str(audio_path),
-            language=settings.asr.language,
+            language=None if settings.asr.language == "auto" else settings.asr.language,
             beam_size=beam_size,
             vad_filter=settings.asr.vad_filter,
             condition_on_previous_text=settings.asr.condition_on_previous_text,
@@ -359,7 +362,10 @@ def transcribe_audio_file(
             ) from exc
         raise AsrTranscriptionError(f"转录失败: {audio_path.name} | {exc}") from exc
 
-    language = getattr(info, "language", settings.asr.language) or settings.asr.language
+    from src.asr.registry import language_metadata
+    reported = getattr(info, "language", None)
+    language_details = language_metadata(settings.asr.language, [reported] if reported else [])
+    language = language_details["language"]
     full_text = "\n".join(segment.text for segment in segments if segment.text).strip()
     duration = getattr(info, "duration", None)
     voiced_duration = getattr(info, "duration_after_vad", None)
@@ -380,7 +386,7 @@ def transcribe_audio_file(
         language=language,
         segments=segments,
         full_text=full_text,
-        metadata={"candidate": "whisper-existing", "model_id": profile.asr_model_size,
+        metadata={**language_details, "candidate": "whisper-existing", "model_id": profile.asr_model_size,
                   "model_reference": getattr(model, "_asr_pipeline_model_reference", profile.asr_model_size),
                   "runtime_versions": asr_runtime_versions(),
                   "timestamp_source": "faster-whisper_segments", "timestamp_granularity": "segment",
@@ -531,8 +537,11 @@ def transcribe_optional_backend(audio_files: list[Path], output_dir: Path,
     device = loaded.active_profile.device.lower()
     if device not in candidate.supported_devices:
         raise InvalidAsrDeviceError(f"候选 {candidate.id} 不支持设备: {device}")
-    if settings.language != "zh":
-        raise AsrTranscriptionError("新增候选首版仅验证中文配置 language=zh；不静默改变语言")
+    from src.asr.registry import validate_candidate_language
+    try:
+        validate_candidate_language(candidate, settings.language)
+    except ValueError as exc:
+        raise AsrTranscriptionError(str(exc)) from exc
     from src.asr.registry import required_modules, worker_python
     interpreter = worker_python(loaded)
     if not Path(interpreter).is_file():
@@ -572,9 +581,10 @@ def transcribe_optional_backend(audio_files: list[Path], output_dir: Path,
     warnings = []
     if settings.initial_prompt:
         warnings.append("Whisper initial_prompt 不跨模型复制；新候选使用 asr.terms 结构化术语")
-    request = {"candidate": candidate.id, "device": device,
+    request = {"candidate": candidate.id, "device": device, "language": settings.language,
                "cache": str(loaded.resolve_path(loaded.active_profile.cache_dir) / settings.backend_cache_subdir),
-               "parameters": {"max_new_tokens": settings.max_new_tokens, "chunk_seconds": settings.chunk_seconds},
+               "parameters": {"max_new_tokens": settings.max_new_tokens, "chunk_seconds": settings.chunk_seconds,
+                              "language": settings.language},
                "terms": terms, "warnings": warnings, "audio": inputs}
     with tempfile.TemporaryDirectory(prefix="asr-worker-", dir=output_dir) as temporary:
         root = Path(temporary)
@@ -628,9 +638,13 @@ def transcribe_batch(
             f"输入目录中没有可处理的音频文件: {audio_dir}。支持扩展名: {supported_ext}"
         )
 
-    from src.asr.registry import get_candidate
+    from src.asr.registry import get_candidate, validate_candidate_language
     try:
         candidate = get_candidate(loaded_settings.settings.asr.candidate)
+        validate_candidate_language(candidate, loaded_settings.settings.asr.language)
+        if loaded_settings.settings.asr.secondary_candidate:
+            validate_candidate_language(get_candidate(loaded_settings.settings.asr.secondary_candidate),
+                                        loaded_settings.settings.asr.language)
     except ValueError as exc:
         raise UnsupportedAsrEngineError(str(exc)) from exc
     secondary = loaded_settings.settings.asr.secondary_candidate

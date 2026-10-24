@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t, labelFor, locale } from "../i18n";
 import {
   NAlert,
   NButton,
@@ -31,6 +32,9 @@ import {
   type ResultDownloadFormat,
 } from "../api/client";
 import JobArtifactsViewer from "./JobArtifactsViewer.vue";
+import AsrLanguageSelector from "./AsrLanguageSelector.vue";
+import { getConfig, type AsrLanguage } from "../api/client";
+import { incompatibleCandidates, languageOverride } from "../composables/asrLanguage";
 
 interface IdentityEntry {
   label: string;
@@ -56,6 +60,19 @@ const isDeleting = ref(false);
 const isRerunning = ref(false);
 const isRetryingStageRun = ref(false);
 const rerunStage = ref("refine");
+const rerunLanguage = ref<AsrLanguage | null>(null);
+const batchItemLanguages = ref<Record<string, AsrLanguage | null>>({});
+async function validateRerunLanguage(language: AsrLanguage | null, item?: BatchItemState) {
+  if (!language) return true;
+  const config = await getConfig();
+  const primary = item?.asr_candidate || textValue(props.state.asr_candidate) || "whisper-existing";
+  const secondary = item?.secondary_asr_candidate ?? textValue(props.state.secondary_asr_candidate);
+  if (incompatibleCandidates(config.asr_candidates ?? [], language, primary, secondary).length) {
+    message.warning(t('所选模型不支持此音频语言，请更改语言或显式选择兼容模型。'));
+    return false;
+  }
+  return true;
+}
 const batchItemRerunStages = ref<Record<string, string>>({});
 const rerunningBatchItemIds = ref<string[]>([]);
 const expandedBatchArtifactJobId = ref("");
@@ -87,6 +104,8 @@ watch(
   () => stateId.value,
   () => {
     expanded.value = props.defaultExpanded ?? false;
+    rerunLanguage.value = null;
+    batchItemLanguages.value = {};
   },
 );
 
@@ -108,10 +127,10 @@ const canRetryStageRun = computed(() => {
 const canViewArtifacts = computed(() => kind.value === "job");
 const canDownloadSingleResult = computed(() => kind.value === "job" && status.value === "success" && Boolean(props.state.output_path));
 const canDownloadBatchResult = computed(() => kind.value === "batch" && hasBatchOutputs.value);
-const resultDownloadOptions: { label: string; key: ResultDownloadFormat }[] = [
-  { label: "下载 Markdown", key: "markdown" },
-  { label: "下载 TXT", key: "txt" },
-];
+const resultDownloadOptions = computed<{ label: string; key: ResultDownloadFormat }[]>(() => ([
+  { label: t('下载 Markdown'), key: "markdown" },
+  { label: t('下载 TXT'), key: "txt" },
+]));
 
 function openDownload(url: string) {
   window.location.href = url;
@@ -123,7 +142,7 @@ function toResultDownloadFormat(key: string | number): ResultDownloadFormat {
 
 function handleSingleResultDownload(format: ResultDownloadFormat = "markdown") {
   if (!stateId.value) {
-    message.error("缺少任务 ID，无法下载结果。");
+    message.error(t('缺少任务 ID，无法下载结果。'));
     return;
   }
   openDownload(jobResultUrl(stateId.value, format));
@@ -131,7 +150,7 @@ function handleSingleResultDownload(format: ResultDownloadFormat = "markdown") {
 
 function handleBatchResultDownload(format: ResultDownloadFormat = "markdown") {
   if (!stateId.value) {
-    message.error("缺少批量任务 ID，无法下载结果。");
+    message.error(t('缺少批量任务 ID，无法下载结果。'));
     return;
   }
   openDownload(batchResultUrl(stateId.value, format));
@@ -139,7 +158,7 @@ function handleBatchResultDownload(format: ResultDownloadFormat = "markdown") {
 
 function handleBatchItemResultDownload(item: BatchItemState, format: ResultDownloadFormat = "markdown") {
   if (!stateId.value || !item.job_id) {
-    message.error("缺少批量子任务 ID，无法下载结果。");
+    message.error(t('缺少批量子任务 ID，无法下载结果。'));
     return;
   }
   openDownload(batchItemResultUrl(stateId.value, item.job_id, format));
@@ -193,7 +212,7 @@ function displayDateTime(value?: unknown) {
   if (Number.isNaN(parsed.getTime())) {
     return rawValue;
   }
-  return parsed.toLocaleString("zh-CN", {
+  return parsed.toLocaleString(locale.value, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -236,42 +255,42 @@ const updatedAtText = computed(() => displayDateTime(props.state.updated_at));
 
 const kindLabel = computed(() => {
   if (kind.value === "job") {
-    return "单任务";
+    return t('单任务');
   }
   if (kind.value === "batch") {
-    return "批量任务";
+    return t('批量任务');
   }
   if (kind.value === "stage-run") {
-    return "单阶段";
+    return t('单阶段');
   }
-  return "任务";
+  return t('任务');
 });
 
 const defaultCardTitle = computed(() => {
   if (kind.value === "job") {
     const sourceName = displaySourceName(videoSource.value) || displaySourceName(props.state.output_path);
-    return sourceName ? `视频：${sourceName}` : `单任务 ${stateId.value || "未命名"}`;
+    return sourceName ? t('视频：{p0}', { p0: sourceName }) : t('单任务 {p0}', { p0: stateId.value || t('未命名') });
   }
   if (kind.value === "batch") {
     const directoryName = displaySourceName(videosDir.value);
     if (directoryName) {
-      return `批量目录：${directoryName}`;
+      return t('批量目录：{p0}', { p0: directoryName });
     }
     const manifestName = displaySourceName(manifestSource.value);
     if (manifestName) {
-      return `批量清单：${manifestName}`;
+      return t('批量清单：{p0}', { p0: manifestName });
     }
     const firstVideoName = displaySourceName(batchItems.value[0]?.video_source);
     if (firstVideoName) {
-      return `批量任务：${firstVideoName} 等 ${batchItems.value.length} 个视频`;
+      return t('批量任务：{p0} 等 {p1} 个视频', { p0: firstVideoName, p1: batchItems.value.length });
     }
-    return `批量任务 ${stateId.value || "未命名"}`;
+    return t('批量任务 {p0}', { p0: stateId.value || t('未命名') });
   }
   if (kind.value === "stage-run") {
     const stageName = textValue(props.state.current_stage);
-    return stageName ? `单阶段：${stageName}` : `单阶段 ${stateId.value || "未命名"}`;
+    return stageName ? t('单阶段：{p0}', { p0: labelFor(stageName) }) : t('单阶段 {p0}', { p0: stateId.value || t('未命名') });
   }
-  return stateId.value ? `任务 ${stateId.value}` : "任务状态";
+  return stateId.value ? t('任务 {p0}', { p0: stateId.value }) : t('任务状态');
 });
 
 const cardTitle = computed(() => textValue(props.title) || defaultCardTitle.value);
@@ -282,7 +301,7 @@ const identitySubtitle = computed(() => {
     parts.push(`ID ${stateId.value}`);
   }
   if (createdAtText.value !== "-") {
-    parts.push(`创建 ${createdAtText.value}`);
+    parts.push(t('创建 {p0}', { p0: createdAtText.value }));
   }
   return parts.join(" · ");
 });
@@ -302,48 +321,48 @@ function makeIdentityEntry(label: string, rawValue: unknown, displayValue?: stri
 const identityEntries = computed<IdentityEntry[]>(() => {
   const entries: Array<IdentityEntry | null> = [];
   if (kind.value === "job") {
-    entries.push(makeIdentityEntry("内容类型", contentType.value, contentType.value));
-    entries.push(makeIdentityEntry("原始视频", videoSource.value));
+    entries.push(makeIdentityEntry(t('内容类型'), contentType.value, labelFor(contentType.value)));
+    entries.push(makeIdentityEntry(t('原始视频'), videoSource.value));
     entries.push(
       contentType.value === "conversation" && !referenceSource.value
-        ? { label: "参考源", value: "无", fullValue: "无" }
-        : makeIdentityEntry("参考源", referenceSource.value)
+        ? { label: t('参考源'), value: t('无'), fullValue: t('无') }
+        : makeIdentityEntry(t('参考源'), referenceSource.value)
     );
-    entries.push(makeIdentityEntry("输出目录", outputDir.value, outputDir.value));
+    entries.push(makeIdentityEntry(t('输出目录'), outputDir.value, outputDir.value));
   } else if (kind.value === "batch") {
-    entries.push(makeIdentityEntry("内容类型", contentType.value, contentType.value));
-    entries.push(makeIdentityEntry("批量目录", videosDir.value));
-    entries.push(makeIdentityEntry("批量清单", manifestSource.value));
-    entries.push(makeIdentityEntry("参考目录", referenceDir.value));
-    entries.push(makeIdentityEntry("共享参考", sharedReference.value));
-    entries.push(makeIdentityEntry("输出目录", outputDir.value, outputDir.value));
+    entries.push(makeIdentityEntry(t('内容类型'), contentType.value, labelFor(contentType.value)));
+    entries.push(makeIdentityEntry(t('批量目录'), videosDir.value));
+    entries.push(makeIdentityEntry(t('批量清单'), manifestSource.value));
+    entries.push(makeIdentityEntry(t('参考目录'), referenceDir.value));
+    entries.push(makeIdentityEntry(t('共享参考'), sharedReference.value));
+    entries.push(makeIdentityEntry(t('输出目录'), outputDir.value, outputDir.value));
     if (!videosDir.value && batchItems.value[0]?.video_source) {
-      entries.push(makeIdentityEntry("首个视频", batchItems.value[0].video_source));
+      entries.push(makeIdentityEntry(t('首个视频'), batchItems.value[0].video_source));
     }
   } else {
-    entries.push(makeIdentityEntry("产物位置", props.state.output_path, textValue(props.state.output_path)));
+    entries.push(makeIdentityEntry(t('产物位置'), props.state.output_path, textValue(props.state.output_path)));
   }
-  entries.push(makeIdentityEntry("书名", bookName.value, bookName.value));
-  entries.push(makeIdentityEntry("章节", chapter.value, chapter.value));
-  entries.push(makeIdentityEntry("术语表", glossaryFile.value));
+  entries.push(makeIdentityEntry(t('书名'), bookName.value, bookName.value));
+  entries.push(makeIdentityEntry(t('章节'), chapter.value, chapter.value));
+  entries.push(makeIdentityEntry(t('术语表'), glossaryFile.value));
   return entries.filter((entry): entry is IdentityEntry => Boolean(entry));
 });
 
 const hasInputSummary = computed(() => identityEntries.value.length > 0);
 
 function batchItemTitle(item: BatchItemState, index: number) {
-  return displaySourceName(item.video_source) || item.job_id || `子任务 ${index + 1}`;
+  return displaySourceName(item.video_source) || item.job_id || t('子任务 {p0}', { p0: index + 1 });
 }
 
-const BATCH_ITEM_STAGE_LABELS: Record<string, string> = {
-  pending: "等待开始",
-  "extract-audio": "音频提取",
-  transcribe: "语音转写",
-  "prepare-reference": "准备参考",
-  refine: "校对润色",
-  "export-markdown": "导出文档",
-  done: "已完成",
-};
+const BATCH_ITEM_STAGE_LABELS = computed<Record<string, string>>(() => ({
+  pending: t('等待开始'),
+  "extract-audio": t('音频提取'),
+  transcribe: t('语音转写'),
+  "prepare-reference": t('准备参考'),
+  refine: t('校对润色'),
+  "export-markdown": t('导出文档'),
+  done: t('已完成'),
+}));
 
 function batchItemPipelineStages(item: BatchItemState): string[] {
   return item.content_type === "conversation"
@@ -352,7 +371,7 @@ function batchItemPipelineStages(item: BatchItemState): string[] {
 }
 
 function batchItemStageLabel(stageName: string): string {
-  return BATCH_ITEM_STAGE_LABELS[stageName] ?? stageName;
+  return BATCH_ITEM_STAGE_LABELS.value[stageName] ?? stageName;
 }
 
 function getBatchItemStageState(
@@ -420,10 +439,10 @@ function toggleBatchItemArtifacts(item: BatchItemState) {
 
 function handleDelete() {
   dialog.warning({
-    title: "确认删除",
-    content: "确定要物理删除此条历史记录吗？此操作不可逆，将永久删除关联的数据状态与缓存文件！",
-    positiveText: "确定删除",
-    negativeText: "不删除",
+    title: t('确认删除'),
+    content: t('确定要物理删除此条历史记录吗？此操作不可逆，将永久删除关联的数据状态与缓存文件！'),
+    positiveText: t('确定删除'),
+    negativeText: t('不删除'),
     onPositiveClick: async () => {
       isDeleting.value = true;
       try {
@@ -436,12 +455,12 @@ function handleDelete() {
         } else if (kind === "stage-run") {
           await deleteStageRun(id);
         } else {
-          throw new Error(`未知的任务类型: ${kind}`);
+          throw new Error(t('未知的任务类型: {p0}', { p0: kind }));
         }
-        message.success("删除成功");
+        message.success(t('删除成功'));
         emit("deleted");
       } catch (caught) {
-        message.error(caught instanceof Error ? caught.message : "删除失败");
+        message.error(caught instanceof Error ? caught.message : t('删除失败'));
       } finally {
         isDeleting.value = false;
       }
@@ -464,33 +483,33 @@ const statusType = computed<"success" | "error" | "info" | "warning">(() => {
 
 const isRunning = computed(() => status.value === "running");
 
-const MAIN_PIPELINE_STAGES = [
-  { key: "extract-audio", label: "音频提取", index: 1 },
-  { key: "transcribe", label: "语音转写", index: 2 },
-  { key: "prepare-reference", label: "准备参考", index: 3 },
-  { key: "refine", label: "校对润色", index: 4 },
-  { key: "export-markdown", label: "导出文档", index: 5 },
-];
+const MAIN_PIPELINE_STAGES = computed(() => ([
+  { key: "extract-audio", label: t('音频提取'), index: 1 },
+  { key: "transcribe", label: t('语音转写'), index: 2 },
+  { key: "prepare-reference", label: t('准备参考'), index: 3 },
+  { key: "refine", label: t('校对润色'), index: 4 },
+  { key: "export-markdown", label: t('导出文档'), index: 5 },
+]));
 
-const DEBUG_PIPELINE_STAGES = [
-  { key: "extract-audio", label: "音频提取", index: 1 },
-  { key: "transcribe", label: "语音转写", index: 2 },
-  { key: "prepare-reference", label: "准备参考", index: 3 },
-  { key: "align", label: "文本对齐", index: 4 },
-  { key: "classify", label: "段落分类", index: 5 },
-  { key: "refine", label: "校对润色", index: 6 },
-  { key: "export-markdown", label: "导出文档", index: 7 },
-];
+const DEBUG_PIPELINE_STAGES = computed(() => ([
+  { key: "extract-audio", label: t('音频提取'), index: 1 },
+  { key: "transcribe", label: t('语音转写'), index: 2 },
+  { key: "prepare-reference", label: t('准备参考'), index: 3 },
+  { key: "align", label: t('文本对齐'), index: 4 },
+  { key: "classify", label: t('段落分类'), index: 5 },
+  { key: "refine", label: t('校对润色'), index: 6 },
+  { key: "export-markdown", label: t('导出文档'), index: 7 },
+]));
 
 const pipelineStages = computed(() => {
-  return kind.value === "stage-run" ? DEBUG_PIPELINE_STAGES : MAIN_PIPELINE_STAGES;
+  return kind.value === "stage-run" ? DEBUG_PIPELINE_STAGES.value : MAIN_PIPELINE_STAGES.value;
 });
 
-const rerunStageOptions = computed(() => MAIN_PIPELINE_STAGES.map((stage) => ({
+const rerunStageOptions = computed(() => MAIN_PIPELINE_STAGES.value.map((stage) => ({
   label: `${stage.label} (${stage.key})`,
   value: stage.key,
 })));
-const rerunStageKeys = computed(() => new Set(MAIN_PIPELINE_STAGES.map((stage) => stage.key)));
+const rerunStageKeys = computed(() => new Set(MAIN_PIPELINE_STAGES.value.map((stage) => stage.key)));
 
 function batchItemKey(item: BatchItemState) {
   return textValue(item.job_id);
@@ -549,16 +568,17 @@ watch(
 async function handleRerun() {
   const id = String(props.state.id ?? "");
   if (!id) {
-    message.error("缺少任务 ID，无法重跑。");
+    message.error(t('缺少任务 ID，无法重跑。'));
     return;
   }
   isRerunning.value = true;
   try {
-    await rerunJob(id, { start_stage: rerunStage.value, backend: "codex_api" });
-    message.success(`已从 ${rerunStage.value} 重新启动任务`);
+    if (!await validateRerunLanguage(rerunLanguage.value)) return;
+    await rerunJob(id, { start_stage: rerunStage.value, backend: "codex_api", ...languageOverride(rerunLanguage.value) });
+    message.success(t('已从 {p0} 重新启动任务', { p0: labelFor(rerunStage.value) }));
     emit("rerun", id);
   } catch (caught) {
-    message.error(caught instanceof Error ? caught.message : "重跑任务失败");
+    message.error(caught instanceof Error ? caught.message : t('重跑任务失败'));
   } finally {
     isRerunning.value = false;
   }
@@ -567,16 +587,16 @@ async function handleRerun() {
 async function handleStageRunRetry() {
   const id = stateId.value;
   if (!id) {
-    message.error("缺少阶段任务 ID，无法补页。");
+    message.error(t('缺少阶段任务 ID，无法补页。'));
     return;
   }
   isRetryingStageRun.value = true;
   try {
     await retryStageRun(id);
-    message.success("已在原阶段任务中重试缺失页。");
+    message.success(t('已在原阶段任务中重试缺失页。'));
     emit("rerun", id);
   } catch (caught) {
-    message.error(caught instanceof Error ? caught.message : "重试缺失页失败");
+    message.error(caught instanceof Error ? caught.message : t('重试缺失页失败'));
   } finally {
     isRetryingStageRun.value = false;
   }
@@ -590,18 +610,20 @@ async function handleBatchItemRerun(item: BatchItemState) {
   const batchId = stateId.value;
   const itemJobId = batchItemKey(item);
   if (!batchId || !itemJobId) {
-    message.error("缺少批量任务或子任务 ID，无法重跑。");
+    message.error(t('缺少批量任务或子任务 ID，无法重跑。'));
     return;
   }
 
   const startStage = batchItemRerunStageValue(item);
   rerunningBatchItemIds.value = [...rerunningBatchItemIds.value, itemJobId];
   try {
-    await rerunBatchItem(batchId, itemJobId, { start_stage: startStage, backend: "codex_api" });
-    message.success(`已从 ${startStage} 重跑子任务`);
+    const language = batchItemLanguages.value[itemJobId] ?? null;
+    if (!await validateRerunLanguage(language, item)) return;
+    await rerunBatchItem(batchId, itemJobId, { start_stage: startStage, backend: "codex_api", ...languageOverride(language) });
+    message.success(t('已从 {p0} 重跑子任务', { p0: labelFor(startStage) }));
     emit("rerun", batchId);
   } catch (caught) {
-    message.error(caught instanceof Error ? caught.message : "重跑子任务失败");
+    message.error(caught instanceof Error ? caught.message : t('重跑子任务失败'));
   } finally {
     rerunningBatchItemIds.value = rerunningBatchItemIds.value.filter((id) => id !== itemJobId);
   }
@@ -664,7 +686,7 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
           }"
         ></span>
         <n-tag :type="statusType" round size="medium" :bordered="false" class="status-badge">
-          {{ String(state.status ?? "-") }}
+          {{ labelFor(String(state.status ?? "-")) }}
         </n-tag>
         <n-dropdown
           v-if="canDownloadSingleResult"
@@ -678,7 +700,7 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
             secondary
             @click.stop
           >
-            下载结果
+            {{ t('下载结果') }}
           </n-button>
         </n-dropdown>
         <n-dropdown
@@ -693,11 +715,11 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
             secondary
             @click.stop
           >
-            下载全部结果
+            {{ t('下载全部结果') }}
           </n-button>
         </n-dropdown>
         <n-button size="small" secondary :aria-expanded="expanded" @click.stop="expanded = !expanded">
-          {{ expanded ? "收起详情" : "展开详情" }}
+          {{ expanded ? t('收起详情') : t('展开详情') }}
         </n-button>
         <n-button
           v-if="canDelete"
@@ -708,7 +730,7 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
           @click.stop="handleDelete"
           class="delete-btn"
         >
-          删除
+          {{ t('删除') }}
         </n-button>
       </n-flex>
     </template>
@@ -731,26 +753,26 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
 
       <div class="status-summary">
         <div class="summary-cell">
-          <span class="summary-label">当前阶段</span>
-          <strong>{{ String(state.current_stage ?? "-") || "-" }}</strong>
+          <span class="summary-label">{{ t('当前阶段') }}</span>
+          <strong>{{ labelFor(String(state.current_stage ?? "-") || "-") }}</strong>
         </div>
         <div class="summary-cell">
-          <span class="summary-label">任务类型</span>
-          <strong>{{ String(state.kind ?? "-") || "-" }}</strong>
+          <span class="summary-label">{{ t('任务类型') }}</span>
+          <strong>{{ labelFor(String(state.kind ?? "-") || "-") }}</strong>
         </div>
         <div class="summary-cell">
-          <span class="summary-label">更新时间</span>
+          <span class="summary-label">{{ t('更新时间') }}</span>
           <strong>{{ updatedAtText }}</strong>
         </div>
         <div v-if="state.total !== undefined" class="summary-cell is-wide">
-          <span class="summary-label">批量进度</span>
+          <span class="summary-label">{{ t('批量进度') }}</span>
           <n-flex :size="8" align="center" wrap>
-            <n-tag size="small" type="info" :bordered="false">总数 {{ String(state.total ?? 0) }}</n-tag>
-            <n-tag size="small" type="success" :bordered="false">成功 {{ String(state.success ?? 0) }}</n-tag>
+            <n-tag size="small" type="info" :bordered="false">{{ t('总数') }} {{ String(state.total ?? 0) }}</n-tag>
+            <n-tag size="small" type="success" :bordered="false">{{ t('成功') }} {{ String(state.success ?? 0) }}</n-tag>
             <n-tag v-if="state.partial !== undefined" size="small" type="warning" :bordered="false">
-              待补页 {{ String(state.partial ?? 0) }}
+              {{ t('待补页') }} {{ String(state.partial ?? 0) }}
             </n-tag>
-            <n-tag size="small" type="error" :bordered="false">失败 {{ String(state.failed ?? 0) }}</n-tag>
+            <n-tag size="small" type="error" :bordered="false">{{ t('失败') }} {{ String(state.failed ?? 0) }}</n-tag>
           </n-flex>
         </div>
       </div>
@@ -761,7 +783,7 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
         :bordered="false"
         class="result-hint"
       >
-        结果已保存在服务器，局域网使用者可直接点击“下载结果”选择 Markdown 或 TXT。
+        {{ t('结果已保存在服务器，局域网使用者可直接点击“下载结果”选择 Markdown 或 TXT。') }}
       </n-alert>
       <n-alert
         v-else-if="canDownloadBatchResult"
@@ -769,13 +791,13 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
         :bordered="false"
         class="result-hint"
       >
-        批量任务已产生可下载结果，可下载全部成功产物，也可展开后按子任务分别选择 Markdown 或 TXT。
+        {{ t('批量任务已产生可下载结果，可下载全部成功产物，也可展开后按子任务分别选择 Markdown 或 TXT。') }}
       </n-alert>
 
       <n-collapse-transition :show="expanded">
         <n-flex vertical :size="20" class="status-detail">
           <div v-if="kind !== 'batch'" class="pipeline-section">
-            <h4 class="pipeline-title">处理进度</h4>
+            <h4 class="pipeline-title">{{ t('处理进度') }}</h4>
             <div class="pipeline-flow">
               <div
                 v-for="stage in pipelineStages"
@@ -799,11 +821,13 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
 
           <div v-if="canRerun" class="rerun-section">
             <div>
-              <h4 class="rerun-title">从指定阶段重新运行</h4>
-              <p class="rerun-copy">复用当前任务的输入、中间目录和生成配置，只从所选阶段继续执行后续流水线。</p>
+              <h4 class="rerun-title">{{ t('从指定阶段重新运行') }}</h4>
+              <p class="rerun-copy">{{ t('复用当前任务的输入、中间目录和生成配置，只从所选阶段继续执行后续流水线。') }}</p>
             </div>
+            <AsrLanguageSelector v-model="rerunLanguage" inherit :inherited-language="String(state.asr_language ?? '')" />
             <n-flex align="center" :size="10" wrap>
               <n-select
+                :aria-label="t('从指定阶段重新运行')"
                 v-model:value="rerunStage"
                 :options="rerunStageOptions"
                 class="rerun-select"
@@ -814,15 +838,15 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
                 :loading="isRerunning"
                 @click="handleRerun"
               >
-                {{ status === "partial" && rerunStage === "prepare-reference" ? "重试缺失页并继续" : "从该阶段重跑" }}
+                {{ status === "partial" && rerunStage === "prepare-reference" ? t('重试缺失页并继续') : t('从该阶段重跑') }}
               </n-button>
             </n-flex>
           </div>
 
           <div v-if="canRetryStageRun" class="rerun-section">
             <div>
-              <h4 class="rerun-title">重试准备参考缺失页</h4>
-              <p class="rerun-copy">沿用当前阶段任务的输入、OCR 参数和页检查点，只请求尚未成功的页面。</p>
+              <h4 class="rerun-title">{{ t('重试准备参考缺失页') }}</h4>
+              <p class="rerun-copy">{{ t('沿用当前阶段任务的输入、OCR 参数和页检查点，只请求尚未成功的页面。') }}</p>
             </div>
             <n-button
               type="warning"
@@ -830,35 +854,35 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
               :loading="isRetryingStageRun"
               @click="handleStageRunRetry"
             >
-              重试缺失页
+              {{ t('重试缺失页') }}
             </n-button>
           </div>
 
           <div v-if="hasOcrProgress" class="ocr-progress-section">
             <div class="batch-items-section__head">
-              <h4 class="batch-items-title">PDF OCR 页进度</h4>
+              <h4 class="batch-items-title">{{ t('PDF OCR 页进度') }}</h4>
               <span class="batch-items-count">
-                {{ String(state.pages_completed ?? 0) }}/{{ String(state.pages_total ?? 0) }} 页完成
+                {{ String(state.pages_completed ?? 0) }}/{{ String(state.pages_total ?? 0) }} {{ t('页完成') }}
               </span>
             </div>
             <div class="batch-items-list">
               <div v-for="item in ocrItems" :key="item.source_file" class="batch-item-row">
                 <div class="batch-item-main">
                   <strong>{{ item.source_file }}</strong>
-                  <span>已完成 {{ item.completed_pages }}/{{ item.page_count }} 页</span>
+                  <span>{{ t('已完成') }} {{ item.completed_pages }}/{{ item.page_count }} {{ t('页') }}</span>
                   <span v-if="item.failed_page_numbers.length" class="batch-item-error">
-                    待补页：{{ item.failed_page_numbers.join("、") }}
+                    {{ t('待补页：') }}{{ item.failed_page_numbers.join("、") }}
                   </span>
                   <p
                     v-for="[pageNumber, pageError] in pageErrorEntries(item)"
                     :key="`${item.source_file}-${pageNumber}`"
                     class="batch-item-error"
                   >
-                    第 {{ pageNumber }} 页：{{ pageError }}
+                    {{ t('第') }} {{ pageNumber }} {{ t('页：') }}{{ pageError }}
                   </p>
                 </div>
                 <n-tag :type="item.resumable ? 'warning' : 'success'" :bordered="false" size="small">
-                  {{ item.resumable ? "待补页" : "完成" }}
+                  {{ item.resumable ? t('待补页') : t('完成') }}
                 </n-tag>
               </div>
             </div>
@@ -871,8 +895,8 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
 
           <div v-if="hasBatchItems" class="batch-items-section">
             <div class="batch-items-section__head">
-              <h4 class="batch-items-title">批量子任务列表</h4>
-              <span class="batch-items-count">{{ batchItems.length }} 个子任务</span>
+              <h4 class="batch-items-title">{{ t('批量子任务列表') }}</h4>
+              <span class="batch-items-count">{{ batchItems.length }} {{ t('个子任务') }}</span>
             </div>
             <div class="batch-items-list">
               <div
@@ -883,17 +907,17 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
                 <div class="batch-child-row__head">
                   <div class="batch-item-main">
                     <strong>{{ batchItemTitle(item, index) }}</strong>
-                    <span v-if="item.job_id" class="batch-item-id">任务 ID：{{ item.job_id }}</span>
-                    <span v-if="item.content_type === 'conversation' && !item.reference_source">参考源：无</span>
-                    <span v-else-if="item.reference_source">参考源：{{ displaySourceName(item.reference_source) }}</span>
-                    <span v-if="item.output_dir">输出目录：{{ item.output_dir }}</span>
-                    <span v-if="item.failed_stage" class="batch-item-muted">失败阶段：{{ batchItemStageLabel(item.failed_stage) }}</span>
-                    <span v-if="item.pages_total">OCR 页进度：{{ item.pages_completed ?? 0 }}/{{ item.pages_total }}</span>
+                    <span v-if="item.job_id" class="batch-item-id">{{ t('任务 ID：') }}{{ item.job_id }}</span>
+                    <span v-if="item.content_type === 'conversation' && !item.reference_source">{{ t('参考源：无') }}</span>
+                    <span v-else-if="item.reference_source">{{ t('参考源：') }}{{ displaySourceName(item.reference_source) }}</span>
+                    <span v-if="item.output_dir">{{ t('输出目录：') }}{{ item.output_dir }}</span>
+                    <span v-if="item.failed_stage" class="batch-item-muted">{{ t('失败阶段：') }}{{ batchItemStageLabel(item.failed_stage) }}</span>
+                    <span v-if="item.pages_total">{{ t('OCR 页进度：') }}{{ item.pages_completed ?? 0 }}/{{ item.pages_total }}</span>
                     <p v-if="item.error_message" class="batch-item-error">{{ item.error_message }}</p>
                   </div>
                   <n-flex align="center" :size="8" wrap class="batch-item-actions">
                     <n-tag size="small" :type="itemStatusType(item.status)" :bordered="false">
-                      {{ item.status || "-" }}
+                      {{ labelFor(item.status || "-") }}
                     </n-tag>
                     <n-dropdown
                       trigger="click"
@@ -907,7 +931,7 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
                         secondary
                         :disabled="item.status !== 'success' || !item.copied_output_path"
                       >
-                        下载结果
+                        {{ t('下载结果') }}
                       </n-button>
                     </n-dropdown>
                     <n-select
@@ -926,14 +950,15 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
                       :loading="isBatchItemRerunning(item)"
                       @click="handleBatchItemRerun(item)"
                     >
-                      重跑
+                      {{ t('重跑') }}
                     </n-button>
                   </n-flex>
                 </div>
 
+                <AsrLanguageSelector v-if="canRerunBatchItem(item)" :model-value="batchItemLanguages[item.job_id] ?? null" inherit :inherited-language="item.asr_language || String(state.asr_language ?? '')" @update:model-value="batchItemLanguages[item.job_id] = $event" />
                 <div class="batch-child-progress" :class="`is-${String(item.status ?? 'pending')}`">
                   <div class="batch-child-progress__summary">
-                    <span>当前阶段：{{ batchItemCurrentStageLabel(item) }}</span>
+                    <span>{{ t('当前阶段：') }}{{ batchItemCurrentStageLabel(item) }}</span>
                     <strong>{{ batchItemStageProgress(item) }}%</strong>
                   </div>
                   <n-progress
@@ -957,9 +982,9 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
 
                 <div v-if="item.job_id" class="batch-child-artifact-action">
                   <n-button size="small" secondary type="primary" @click="toggleBatchItemArtifacts(item)">
-                    {{ expandedBatchArtifactJobId === item.job_id ? "收起中间产物" : "查看中间产物" }}
+                    {{ expandedBatchArtifactJobId === item.job_id ? t('收起中间产物') : t('查看中间产物') }}
                   </n-button>
-                  <span>产物会随子任务推进陆续出现。</span>
+                  <span>{{ t('产物会随子任务推进陆续出现。') }}</span>
                 </div>
                 <JobArtifactsViewer
                   v-if="expandedBatchArtifactJobId === item.job_id"
@@ -972,62 +997,63 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
           </div>
 
           <n-descriptions label-placement="top" :column="1" size="small" class="status-grid">
-            <n-descriptions-item label="当前运行阶段">
-              <span class="font-semibold">{{ String(state.current_stage ?? "-") || "-" }}</span>
+            <n-descriptions-item :label="t('当前运行阶段')">
+              <span class="font-semibold">{{ labelFor(String(state.current_stage ?? "-") || "-") }}</span>
             </n-descriptions-item>
-            <n-descriptions-item label="任务类型 (Kind)">
-              <n-tag size="small" :bordered="false" type="info">{{ String(state.kind ?? "-") || "-" }}</n-tag>
+            <n-descriptions-item :label="t('任务类型 (Kind)')">
+              <n-tag size="small" :bordered="false" type="info">{{ labelFor(String(state.kind ?? "-") || "-") }}</n-tag>
             </n-descriptions-item>
-            <n-descriptions-item v-if="state.asr_engine || state.asr_candidate" label="语音转文字" :span="2">
+            <n-descriptions-item v-if="state.asr_language" :label="t('音频语言')">{{ labelFor(state.asr_language) }}</n-descriptions-item>
+            <n-descriptions-item v-if="state.asr_engine || state.asr_candidate" :label="t('语音转文字')" :span="2">
               {{ state.asr_engine && state.asr_model ? `${state.asr_engine} / ${state.asr_model}` : state.asr_candidate }}
             </n-descriptions-item>
-            <n-descriptions-item v-if="state.secondary_asr_candidate" label="第二 ASR（任务配置）" :span="2">
+            <n-descriptions-item v-if="state.secondary_asr_candidate" :label="t('第二 ASR（任务配置）')" :span="2">
               {{ state.secondary_asr_candidate }}
             </n-descriptions-item>
-            <n-descriptions-item label="服务器保存路径" :span="2">
+            <n-descriptions-item :label="t('服务器保存路径')" :span="2">
               <span class="status-card__path">{{ String(state.output_path ?? "-") || "-" }}</span>
             </n-descriptions-item>
             <template v-if="hasInputSummary">
-              <n-descriptions-item v-if="videoSource" label="原始视频" :span="2">
+              <n-descriptions-item v-if="videoSource" :label="t('原始视频')" :span="2">
                 <span class="status-card__path">{{ videoSource }}</span>
               </n-descriptions-item>
-              <n-descriptions-item v-if="referenceSource || contentType === 'conversation'" label="参考源" :span="2">
-                <span class="status-card__path">{{ referenceSource || "无" }}</span>
+              <n-descriptions-item v-if="referenceSource || contentType === 'conversation'" :label="t('参考源')" :span="2">
+                <span class="status-card__path">{{ referenceSource || t('无') }}</span>
               </n-descriptions-item>
-              <n-descriptions-item v-if="videosDir" label="批量目录" :span="2">
+              <n-descriptions-item v-if="videosDir" :label="t('批量目录')" :span="2">
                 <span class="status-card__path">{{ videosDir }}</span>
               </n-descriptions-item>
-              <n-descriptions-item v-if="manifestSource" label="批量清单" :span="2">
+              <n-descriptions-item v-if="manifestSource" :label="t('批量清单')" :span="2">
                 <span class="status-card__path">{{ manifestSource }}</span>
               </n-descriptions-item>
-              <n-descriptions-item v-if="referenceDir" label="参考目录" :span="2">
+              <n-descriptions-item v-if="referenceDir" :label="t('参考目录')" :span="2">
                 <span class="status-card__path">{{ referenceDir }}</span>
               </n-descriptions-item>
-              <n-descriptions-item v-if="sharedReference" label="共享参考" :span="2">
+              <n-descriptions-item v-if="sharedReference" :label="t('共享参考')" :span="2">
                 <span class="status-card__path">{{ sharedReference }}</span>
               </n-descriptions-item>
-              <n-descriptions-item v-if="outputDir" label="任务输出目录" :span="2">
+              <n-descriptions-item v-if="outputDir" :label="t('任务输出目录')" :span="2">
                 <span class="status-card__path">{{ outputDir }}</span>
               </n-descriptions-item>
             </template>
-            <n-descriptions-item label="创建时间">
+            <n-descriptions-item :label="t('创建时间')">
               <span class="text-muted">{{ createdAtText }}</span>
             </n-descriptions-item>
-            <n-descriptions-item label="更新时间">
+            <n-descriptions-item :label="t('更新时间')">
               <span class="text-muted">{{ updatedAtText }}</span>
             </n-descriptions-item>
 
             <template v-if="state.total !== undefined">
-              <n-descriptions-item label="视频总任务数">
+              <n-descriptions-item :label="t('视频总任务数')">
                 {{ String(state.total ?? "-") || "-" }}
               </n-descriptions-item>
-              <n-descriptions-item label="状态统计">
+              <n-descriptions-item :label="t('状态统计')">
                 <n-flex :size="8">
-                  <n-tag size="small" type="success" :bordered="false">成功 {{ String(state.success ?? 0) }}</n-tag>
+                  <n-tag size="small" type="success" :bordered="false">{{ t('成功') }} {{ String(state.success ?? 0) }}</n-tag>
                   <n-tag v-if="state.partial !== undefined" size="small" type="warning" :bordered="false">
-                    待补页 {{ String(state.partial ?? 0) }}
+                    {{ t('待补页') }} {{ String(state.partial ?? 0) }}
                   </n-tag>
-                  <n-tag size="small" type="error" :bordered="false">失败 {{ String(state.failed ?? 0) }}</n-tag>
+                  <n-tag size="small" type="error" :bordered="false">{{ t('失败') }} {{ String(state.failed ?? 0) }}</n-tag>
                 </n-flex>
               </n-descriptions-item>
             </template>
@@ -1037,7 +1063,7 @@ function getStepState(stageKey: string): "completed" | "active" | "failed" | "pe
             v-if="String(state.error_message ?? '')"
             class="status-card__error"
             :type="status === 'partial' ? 'warning' : 'error'"
-            :title="`流水线执行错误报告`"
+            :title="t('流水线执行错误报告')"
             :bordered="false"
           >
             <p class="error-text-content">{{ String(state.error_message) }}</p>

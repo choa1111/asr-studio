@@ -18,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="按当前推荐主链顺序运行完整流水线。")
     parser.add_argument("--config", help="配置文件路径，默认使用 config/settings.yaml")
     parser.add_argument("--profile", help="运行 profile，覆盖配置文件中的默认 profile")
+    parser.add_argument("--asr-language", help="音频语言 auto/zh/en/ja；省略继承配置；Whisper 亦接受原有其他语言代码")
     parser.add_argument("--asr-candidate", help="ASR 候选 ID")
     parser.add_argument("--secondary-asr-candidate", help="第二 ASR 候选；空字符串关闭双 ASR")
     parser.add_argument("--ocr-model", help="覆盖 Codex API OCR 使用的模型")
@@ -43,7 +44,7 @@ def main() -> int:
         apply_model_overrides(
             loaded_settings,
             ModelOverrides(
-                asr_candidate=args.asr_candidate,
+                asr_candidate=args.asr_candidate, asr_language=args.asr_language,
                 secondary_asr_candidate=args.secondary_asr_candidate,
                 ocr_model=args.ocr_model,
                 ocr_reasoning_effort=args.ocr_reasoning_effort,

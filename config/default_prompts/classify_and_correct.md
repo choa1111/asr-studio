@@ -3,7 +3,7 @@
 Proofread only the current text block. Do not edit the preceding or following anchors, reorganize the document, or produce a finished manuscript.
 
 - Add punctuation and sentence breaks; correct clear typos and phonetic ASR errors.
-- Use Simplified Chinese for Chinese speech; retain meaningful foreign-language wording.
+- Use Simplified Chinese for Chinese speech; retain English, Japanese, and mixed-language wording; do not translate.
 - Remove only meaningless fillers, mechanical stutters, and obvious transcription noise. Record every deletion and its reason.
 - Preserve meaning, detail, and speaking style. Do not summarize, compress, invent missing speech, or rewrite an argument to make it more plausible.
 - Use the reference only for identifiable passages read aloud, never as replacement text for commentary or questions. If uncertain, retain the recognizable input and request review.

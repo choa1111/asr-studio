@@ -26,15 +26,34 @@ Web 不接受用户自选仓库、revision 或任意 worker Python。
 - 历史任务：显式同候选重试 > 任务 YAML 快照。后来的 Web 默认/profile 不重选旧任务模型。转录阶段另存有效 ASR 配置快照，阶段/文件阶段重试沿用保存的 config/profile/candidate。
 - 不同候选必须新建任务或使用独立阶段文件工作区；同一工作区切换候选会报错。
 - profile 仍决定 device；Whisper model/compute type/beam 不传给新后端。
-- 新候选仍使用 `language=zh` 作为中文主语言配置，其他语言配置会明确拒绝。Qwen 允许其中夹杂外语，不按识别文字的语种拒绝或翻译；保留原识别文字，无法可靠细粒度对齐时按下述规则降级。这不是纯外语录音的全面多语言验收，也不统一启用自动语种检测。
+- 音频语言可显式指定 `zh`、`en`、`ja`，或选择模型支持的 `auto`；默认仍为 `zh`。语言参数与界面语言无关，不自动翻译识别内容。模型能力与配置继承见下文“音频语言”；保留原识别文字和既有时间戳降级规则。自动检测是用户显式选择，不作为中文任务失败后的静默回退。
 - Qwen 生成时仅对最后一个位置计算词表 logits，避免固定 SDK 对长音频/术语上下文的全部输入位置分配无用的大张量。优化只作用于 ASR generation，ForcedAligner 和其他完整 forward 不变；不减少术语、不改变分块/精度、不自动换模型或 CPU。8 GB GPU 仍需为桌面和其他进程预留显存，不能据一次短片段通过保证所有输入可用。部署时应以实际输入与可用显存单独验收。
+
+## 音频语言
+
+界面 locale（`zh-CN` / `en` / `ja`）只改变显示。ASR 使用独立的 `asr.language`，任务 API / Web 保存设置与批量条目使用 `asr_language`，CLI 使用 `--asr-language`。
+
+| 候选 | 本项目接入的音频语言 |
+| --- | --- |
+| Whisper | `auto` / `zh` / `en` / `ja`；沿用既有 Whisper 其他合法语言配置 |
+| 两款 Qwen3-ASR | `auto` / `zh` / `en` / `ja` |
+| `paraformer-zh` | 仅 `zh`，其他组合明确拒绝 |
+| `fun-asr-nano` | `auto` / `zh` / `en` / `ja`，使用固定 FunASR SDK 支持的语言代码 |
+
+`auto` 在 Whisper / Qwen 调用中表示不给定语言提示，由模型检测，不代表把结果翻译成界面语言；已知语种时应显式指定。短片段、混合语言和带长术语的材料可能误判，不据参数接通宣布日英识别质量已验收。Fun-ASR-Nano 按固定 SDK 版本映射语言参数，不照搬其他版本示例里的语言名称。
+
+Web 新任务按本次显式值 > 已保存 Web 默认 > YAML 配置继承。批量清单允许每条 `asr_language` 覆盖批次默认。既有任务重跑继续使用原配置快照，不继承后来修改的 Web 语言；显式选择语言覆盖仅影响本次执行。双 ASR 的两个候选都必须支持所选语种，不静默换模型或忽略辅助候选的语言限制。
+
+`GET /api/config` 返回 `asr_languages`、`default_asr_language`；候选条目的 `supported_languages` 用于界面能力提示。实际请求参数、SDK 报告语种和自动检测模式应分别记录，不能把所有 worker 结果固定写成中文。
+
+AI 校对与 OCR 保留材料原语言，界面语言不成为翻译指令。参考材料可能与录音异语，因此不根据 `asr_language` 改写 `reference.ocr_languages`；Tesseract 回退需显式配置和安装相应语言包，例如 `jpn` / `eng`。默认提示词保留中文讲话的简体中文策略，同时允许日文与英文原文输出。
 
 ### Qwen 0.6B 的有界局部恢复
 
-正常块仍按中文、完整术语上下文、原 PCM 分块处理。仅 0.6B 在下列明确错误时做有界局部恢复，不换模型、CPU 或精度，不增加 token 上限：
+正常块按任务选择的语言、完整术语上下文、原 PCM 分块处理，既有中文默认不变。以下历史局部恢复仅用于 `language=zh` 的 0.6B 任务，不换模型、CPU 或精度，不增加 token 上限；日语、英语及自动检测模式不会套用中文恢复策略，触顶仍明确失败：
 
-- **带术语生成触顶且无 EOS**：同 PCM、同模型撤掉该块术语上下文重试一次，仍强制中文。短片段曾回显整份词表；没有术语时不重复相同尝试。不能统一改自动语言检测：实测会把短中文夹英文误判为葡语。
-- **带术语首试和无术语重试均触顶且无 EOS**：将当前真实 PCM 块按整数样本中点二分一次，两子块均至少 1 秒；不满足最小时长则保持失败。子块各使用原术语、中文识别、原精度及 token 上限，仅识别一次，不再撤术语、不递归二分，也不额外 Japanese 重对齐。音频无重叠、丢失、填充或跨 VAD 区间；仅当两个子块均返回完整非空文字并通过既有时间戳校验/降级后才成功。任何子块触顶、空文/纯标点、SDK/OOM 异常都停止，不发布部分成功的产物。历史样例的 30 秒块曾反复生成同一短句，无术语也触顶，而两个 15 秒子块均正常结束。
+- **带术语生成触顶且无 EOS**：同 PCM、同模型撤掉该块术语上下文重试一次，保留中文语言参数。短片段曾回显整份词表；没有术语时不重复相同尝试。中文任务不能为恢复而统一改自动语言检测：实测会把短中文夹英文误判为葡语。
+- **带术语首试和无术语重试均触顶且无 EOS**：将当前真实 PCM 块按整数样本中点二分一次，两子块均至少 1 秒；不满足最小时长则保持失败。子块各使用原术语、中文语言参数、原精度及 token 上限，仅识别一次，不再撤术语、不递归二分，也不额外 Japanese 重对齐。音频无重叠、丢失、填充或跨 VAD 区间；仅当两个子块均返回完整非空文字并通过既有时间戳校验/降级后才成功。任何子块触顶、空文/纯标点、SDK/OOM 异常都停止，不发布部分成功的产物。历史样例的 30 秒块曾反复生成同一短句，无术语也触顶，而两个 15 秒子块均正常结束。
 - **全部零时长且文字属于含假名的日文脚本**：不重跑识别、不改首试文字，只对同 PCM/同文字以 `Japanese` 分词规则调用原 ForcedAligner 一次。中文规则曾把整串假名合成一个零时长单元。纯中文或含其他语言字母的零时长不启用此恢复。
 
 生成恢复最多四次识别调用：原块首试 + 无术语重试 + 两个子块各一次。没有术语时仍不启用生成恢复；非触顶异常不启用二分。Japanese 重对齐与生成恢复不串联。解码仍须正常结束并有实际文字；最终失败保留原块两次原因及失败子块原因/边界并停止。缺失时间戳、字词不一致或无效区间不触发 ASR 重跑，而是按下述粗粒度策略保留文字。Japanese 重对齐返回的结果若仍无效也可降级；SDK 抛异常（包括 OOM）仍失败，不吞掉运行错误。1.7B 及其他候选不启用这些模型恢复。
@@ -43,13 +62,13 @@ Web 不接受用户自选仓库、revision 或任意 worker Python。
 
 ### Qwen 混合语言文字与粗粒度时间戳
 
-两种 Qwen 均保留已识别出的中外文文字，中文主语言和原术语首试不变，不把外国词拼写不确定当作整项任务失败。正常细粒度对齐仍先做字词一致、有限值、顺序与音频范围校验，不发布无效对齐结果。
+两种 Qwen 均保留已识别出的中外文文字，遵循任务的语言参数并保留原术语首试，既有中文默认不变，不把外国词拼写不确定当作整项任务失败。正常细粒度对齐仍先做字词一致、有限值、顺序与音频范围校验，不发布无效对齐结果。
 
 当 SDK 已返回非空、非纯标点的完整文字，但时间戳缺失/为空、全部零时长、字词不一致、顺序错误或越界时，丢弃该块细粒度对齐，输出**整块原识别文字 + 该真实 PCM 块的起止秒数**。不按句子切分粗时间，不按字数猜词时间，不补造文字；中文文字也可按同一规则降级，不用不可靠的脚本判断决定是否保留。0.6B 的原 Japanese 重对齐仍优先尝试，失败结果再降级；生成恢复（包括二分子块）不额外重对齐。
 
 `metadata.chunk_timestamp_fallbacks` 记录每个降级块的 `interval`、对应 `segment_ids`、对齐失败原因、`timestamp_source=silero_vad_pcm_slice`、`timestamp_granularity=vad_audio_chunk`、`text_changed=false` 与 `requires_review=true`。全部粗粒度时文件级来源/粒度同上；部分粗粒度时分别标为 `mixed_forced_alignment_and_vad_pcm_slice` / `mixed_alignment_and_vad_audio_chunk`，不得把文件宣称为全字词对齐。正常文件保留原来源/粒度，新增列表为空；段字段仍为原 `id/start/end/text`。
 
-日志及 `metadata.warnings` 明确提示这不是字/词/句边界，需后续 AI 校对与人工复核。这里仅提供待校文字和音频块定位，没有新增 AI 调用。有界生成恢复后仍触顶且无结束 token、空文/纯标点、SDK 异常仍失败；若 SDK 在返回文字前抛出对齐异常，没有可用文字就不能降级。其他后端、纯外语配置、默认候选与部署均不改变。
+日志及 `metadata.warnings` 明确提示这不是字/词/句边界，需后续 AI 校对与人工复核。这里仅提供待校文字和音频块定位，没有新增 AI 调用。有界生成恢复后仍触顶且无结束 token、空文/纯标点、SDK 异常仍失败；若 SDK 在返回文字前抛出对齐异常，没有可用文字就不能降级。语言适配不改变这些粗粒度边界、其他后端的时间戳策略、默认候选或部署。
 
 ## 安装：基础环境不变，可选 worker 隔离
 
@@ -78,7 +97,7 @@ asr:
   worker_python: .venv/asr-py312/bin/python
   backend_cache_subdir: asr-models
   language: zh
-  terms: [卷土重来, 书名]
+  terms: [示例术语, 材料名称]
   max_new_tokens: 2048
   chunk_seconds: 30.0               # 新后端 VAD 区间的实际 PCM 子块上限
 ```
@@ -92,7 +111,7 @@ asr:
 .venv/bin/python scripts/02_transcribe.py \
   --config path/to/independent-settings.yaml \
   --profile wsl2_gpu_high_accuracy \
-  --asr-candidate qwen3-asr-0.6b
+  --asr-candidate qwen3-asr-0.6b --asr-language ja
 ```
 
 pipeline、主流水线、单任务和批量任务 CLI 同样支持 `--asr-candidate`。
@@ -169,6 +188,14 @@ docker build --build-arg ASR_BACKENDS=all -t asr-studio:asr .
 新 SDK 安装到 `/app/.venv/asr-py312`，基础应用依赖不与 PyTorch SDK 混装。基础 decoder 单独固定 `av==16.1.0`，避免 PyAV 19 移除 `metadata_errors` API 导致 faster-whisper 1.2.1 无法打开音频。可选环境固定 pip 26.2.1 以支持大包断线续传和哈希校验，为 FunASR 的旧 sdist 预装 setuptools/wheel，再关闭临时 build isolation；构建仍执行 pip check。不绕过包哈希验证。
 运行时需要 GPU device requests、可写独立 data/cache 挂载、明确的任务/profile 配置。
 构建成功、`nvidia-smi`、包导入和实际模型推理是不同验收层级。本次可选 `all` 镜像已经通过五候选的真实 CUDA 短语音/静音转录；尚未在容器中重复 10 分钟样例或部署到现有服务。历史验证不替代当前公开版本在目标主机上的验收；不以本段命令作为通过证明。
+
+### 语言参数的版本依据
+
+- Whisper 使用 [faster-whisper 官方接口](https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py)：自动检测传 `None`，显式语种使用代码，并检查实际模型支持的语言。
+- Qwen 使用项目固定的 [qwen-asr 0.0.6](https://pypi.org/project/qwen-asr/0.0.6/)：中文、英语、日语映射为 `Chinese` / `English` / `Japanese`，自动检测传 `None`。
+- Nano 使用项目固定的 [FunASR 1.3.0](https://pypi.org/project/funasr/1.3.0/)：语言参数使用 `auto` / `zh` / `en` / `ja`。其他版本示例中的语言名称不等于固定版本接受的值。
+
+这些依据用于核对 SDK 参数与能力；本轮多语言接入通过模拟 SDK、完整工程测试和英日文本实际提取/导出验证，未执行新的英日录音推理或外部模型校对。已有中文真实运行记录不替代日英录音质量验收。
 
 ## 接入不等于识别质量结论
 

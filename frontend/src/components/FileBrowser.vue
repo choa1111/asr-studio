@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../i18n";
 import {
   NAlert,
   NButton,
@@ -82,8 +83,8 @@ async function loadEntries(targetPath: string | null) {
     parentPath.value = response.parent_path;
     items.value = response.items;
   } catch (caught) {
-    loadError.value = caught instanceof Error ? caught.message : "目录读取失败";
-    message.error(caught instanceof Error ? caught.message : "目录读取失败");
+    loadError.value = caught instanceof Error ? caught.message : t('目录读取失败');
+    message.error(caught instanceof Error ? caught.message : t('目录读取失败'));
   } finally {
     loading.value = false;
   }
@@ -162,18 +163,18 @@ watch(showHidden, () => {
   <div class="file-browser-field">
     <n-input
       :value="modelValue"
-      :placeholder="`${label} 路径，可直接粘贴`"
+      :placeholder="t('{p0} 路径，可直接粘贴', { p0: label })"
       clearable
       @update:value="emit('update:modelValue', $event)"
       class="file-browser-field__input"
     />
     <n-button type="primary" @click="open" class="file-browser-field__button">
-      {{ buttonText ?? `选择${label}` }}
+      {{ buttonText ?? t('选择{p0}', { p0: label }) }}
     </n-button>
   </div>
 
   <n-modal v-model:show="visible" preset="card" :style="{ width: 'min(880px, 94vw)', borderRadius: '16px' }">
-    <n-card :title="`选择 ${label}`" closable @close="close" class="modal-card">
+    <n-card :title="t('选择 {p0}', { p0: label })" closable @close="close" class="modal-card">
       <n-flex vertical :size="16">
         <n-flex justify="space-between" align="center" wrap class="browser-toolbar">
           <n-flex align="center" wrap class="breadcrumbs-container">
@@ -181,7 +182,7 @@ watch(showHidden, () => {
               <template #icon>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M18 15l-6-6-6 6"/></svg>
               </template>
-              返回上级
+              {{ t('返回上级') }}
             </n-button>
             <div class="breadcrumb-trail">
               <template v-for="(segment, idx) in segments" :key="segment.path">
@@ -192,15 +193,15 @@ watch(showHidden, () => {
               </template>
             </div>
           </n-flex>
-          <n-checkbox v-model:checked="showHidden" class="hidden-files-check">显示隐藏文件</n-checkbox>
+          <n-checkbox v-model:checked="showHidden" class="hidden-files-check">{{ t('显示隐藏文件') }}</n-checkbox>
         </n-flex>
 
         <n-input :value="currentPath" readonly size="small" class="current-path-display" />
 
-        <n-alert v-if="loadError" type="error" title="无法读取服务器目录" :bordered="false">{{ loadError }}<n-button text @click="loadEntries(currentPath || null)">重试</n-button></n-alert>
+        <n-alert v-if="loadError" type="error" :title="t('无法读取服务器目录')" :bordered="false">{{ loadError }}<n-button text @click="loadEntries(currentPath || null)">{{ t('重试') }}</n-button></n-alert>
         <n-spin :show="loading">
           <div class="file-browser__list">
-            <n-empty v-if="!loading && !loadError && items.length === 0" description="当前目录为空" />
+            <n-empty v-if="!loading && !loadError && items.length === 0" :description="t('当前目录为空')" />
             <button
               v-for="item in items"
               :key="item.path"
@@ -225,7 +226,7 @@ watch(showHidden, () => {
                 </div>
               </n-flex>
               <n-tag :type="item.is_dir ? 'info' : 'default'" size="small" round :bordered="false" class="item-tag">
-                {{ item.is_dir ? "目录" : "文件" }}
+                {{ item.is_dir ? t('目录') : t('文件') }}
               </n-tag>
             </button>
           </div>
@@ -233,15 +234,15 @@ watch(showHidden, () => {
 
         <n-flex justify="space-between" align="center" class="browser-footer">
           <span class="file-browser__hint">
-            {{ mode === "dir" ? "可直接选择当前目录，也可单击子目录后确认。" : "双击文件可直接确认。" }}
+            {{ mode === "dir" ? t('可直接选择当前目录，也可单击子目录后确认。') : t('双击文件可直接确认。') }}
           </span>
           <n-flex :size="10">
             <n-button v-if="mode === 'dir'" secondary type="primary" :disabled="!currentPath" @click="confirmCurrentDirectory" class="footer-btn">
-              选择当前目录
+              {{ t('选择当前目录') }}
             </n-button>
-            <n-button @click="close" class="footer-btn">取消</n-button>
+            <n-button @click="close" class="footer-btn">{{ t('取消') }}</n-button>
             <n-button type="primary" :disabled="confirmDisabled" @click="confirmSelection" class="footer-btn">
-              {{ mode === "dir" ? "确认目录" : "确认选择" }}
+              {{ mode === "dir" ? t('确认目录') : t('确认选择') }}
             </n-button>
           </n-flex>
         </n-flex>

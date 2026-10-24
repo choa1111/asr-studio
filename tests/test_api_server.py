@@ -131,6 +131,8 @@ def test_get_config_returns_profiles_and_backends(tmp_path: Path) -> None:
     assert [item["id"] for item in candidates] == ["whisper-existing", "qwen3-asr-1.7b", "qwen3-asr-0.6b"]
     assert all(item["runtime_validation"] == "not_checked" for item in candidates)
     assert payload == {
+        "asr_languages": ["auto", "zh", "en", "ja"],
+        "default_asr_language": "zh",
         "profiles": ["local_cpu"],
         "backends": ["codex_api", "agy", "codex_cli", "both"],
         "configured_backends": ["codex_api"],

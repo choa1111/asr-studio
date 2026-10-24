@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t, labelFor } from "../i18n";
 import {
   NAlert,
   NButton,
@@ -35,9 +36,22 @@ const errorText = ref("");
 
 const existingArtifacts = computed(() => artifacts.value.filter((item) => item.exists));
 
+function artifactLabel(item: JobArtifact) {
+  const labels = {
+    "transcribe-text": 'ASR 转录文本', "transcribe-json": '转录 JSON',
+    "reference-text": '参考文本', "reference-json": '参考 JSON',
+    "refine-markdown": '校对后 Markdown', "refine-text": '校对后纯文本', "refine-json": '校对 JSON',
+    "refine-diagnostics": '阶段六调用诊断', "final-markdown": '最终 Markdown',
+    "align-json": '对齐 JSON', "classify-json": '分类 JSON', "transcribe-pair": '双 ASR 配对状态',
+  } as const;
+  if (item.id in labels) return t(labels[item.id as keyof typeof labels]);
+  if (item.id.startsWith('ocr-text-')) return t('OCR 文本 {p0}', { p0: item.path.split('/').pop() });
+  if (item.id.startsWith('transcribe-secondary-')) return t('第二 ASR {p0} {p1}', { p0: item.id.slice('transcribe-secondary-'.length).replace(/-(text|json)$/, ''), p1: item.content_type.toUpperCase() });
+  return item.id;
+}
 const artifactOptions = computed(() =>
   artifacts.value.map((item) => ({
-    label: `${item.label} · ${item.stage}${item.exists ? "" : " · 未生成"}`,
+    label: `${artifactLabel(item)} · ${labelFor(item.stage)}${item.exists ? "" : t(' · 未生成')}`,
     value: item.id,
     disabled: !item.exists,
   })),
@@ -71,7 +85,7 @@ async function loadArtifacts() {
     const firstExisting = response.items.find((item) => item.exists);
     selectedArtifactId.value = firstExisting?.id ?? null;
   } catch (caught) {
-    errorText.value = caught instanceof Error ? caught.message : "加载阶段产物失败";
+    errorText.value = caught instanceof Error ? caught.message : t('加载阶段产物失败');
   } finally {
     loadingList.value = false;
   }
@@ -90,7 +104,7 @@ async function loadSelectedArtifact() {
       : await getJobArtifact(props.jobId, selectedArtifactId.value);
   } catch (caught) {
     selectedArtifact.value = null;
-    errorText.value = caught instanceof Error ? caught.message : "读取阶段产物失败";
+    errorText.value = caught instanceof Error ? caught.message : t('读取阶段产物失败');
   } finally {
     loadingContent.value = false;
   }
@@ -115,7 +129,7 @@ async function writeClipboardText(content: string) {
 
   try {
     if (!document.execCommand("copy")) {
-      throw new Error("浏览器未允许复制到剪贴板");
+      throw new Error(t('浏览器未允许复制到剪贴板'));
     }
   } finally {
     textarea.remove();
@@ -125,15 +139,15 @@ async function writeClipboardText(content: string) {
 async function copyContent() {
   const content = selectedArtifact.value?.content ?? "";
   if (!content) {
-    message.warning("当前没有可复制的产物内容。");
+    message.warning(t('当前没有可复制的产物内容。'));
     return;
   }
 
   try {
     await writeClipboardText(content);
-    message.success("已复制当前产物内容");
+    message.success(t('已复制当前产物内容'));
   } catch {
-    message.error("复制失败，请检查浏览器的剪贴板权限后重试。");
+    message.error(t('复制失败，请检查浏览器的剪贴板权限后重试。'));
   }
 }
 
@@ -145,11 +159,11 @@ watch(selectedArtifactId, loadSelectedArtifact);
   <section class="artifacts-panel">
     <n-flex align="center" justify="space-between" :size="12" wrap>
       <div>
-        <h4 class="artifacts-title">阶段文字产物</h4>
-        <p class="artifacts-copy">查看每个阶段已经生成的文本或 JSON，用于判断从哪个阶段重跑。</p>
+        <h4 class="artifacts-title">{{ t('阶段文字产物') }}</h4>
+        <p class="artifacts-copy">{{ t('查看每个阶段已经生成的文本或 JSON，用于判断从哪个阶段重跑。') }}</p>
       </div>
       <n-button size="small" secondary type="primary" :loading="loadingList" @click="loadArtifacts">
-        刷新产物
+        {{ t('刷新产物') }}
       </n-button>
     </n-flex>
 
@@ -160,7 +174,7 @@ watch(selectedArtifactId, loadSelectedArtifact);
     </template>
 
     <template v-else-if="artifacts.length === 0 || existingArtifacts.length === 0">
-      <n-empty v-if="!errorText" description="当前任务还没有可查看的文字产物。" />
+      <n-empty v-if="!errorText" :description="t('当前任务还没有可查看的文字产物。')" />
     </template>
 
     <template v-else>
@@ -170,11 +184,11 @@ watch(selectedArtifactId, loadSelectedArtifact);
           :options="artifactOptions"
           class="artifact-select"
         />
-        <n-button size="small" secondary :disabled="!selectedArtifact?.content" @click="copyContent">复制内容</n-button>
+        <n-button size="small" secondary :disabled="!selectedArtifact?.content" @click="copyContent">{{ t('复制内容') }}</n-button>
       </div>
 
       <div v-if="selectedMeta" class="artifact-meta">
-        <n-tag size="small" type="info" :bordered="false">{{ selectedMeta.stage }}</n-tag>
+        <n-tag size="small" type="info" :bordered="false">{{ labelFor(selectedMeta.stage) }}</n-tag>
         <n-tag size="small" :bordered="false">{{ selectedMeta.content_type }}</n-tag>
         <span>{{ formattedSize }}</span>
         <span class="artifact-path">{{ selectedMeta.path }}</span>
@@ -182,7 +196,7 @@ watch(selectedArtifactId, loadSelectedArtifact);
 
       <div class="artifact-preview">
         <n-skeleton v-if="loadingContent" text :repeat="8" />
-        <pre v-else>{{ selectedArtifact?.content || "暂无内容" }}</pre>
+        <pre v-else>{{ selectedArtifact?.content || t('暂无内容') }}</pre>
       </div>
     </template>
   </section>

@@ -1,1212 +1,174 @@
 # ASR Studio
 
-ASR Studio 是可自行部署的音视频转文字与人工校对工作台，支持讲座、课程、访谈及其他录音材料，可结合参考材料校对或直接整理对谈。
+[简体中文](README.md) · [English](README.en.md) · [日本語](README.ja.md)
 
-提供 Web 界面与命令行，保留 Whisper、Qwen3、Paraformer、Fun-ASR-Nano、多模型转录、PDF OCR、AI 校对及 Markdown / TXT 导出。不同模型、OCR 和 AI 校对需要各自的依赖或外部服务，不会因安装基础应用而自动可用。
+**把音视频整理成可校对、可追溯的文稿。**
 
-### 从这里开始
+ASR Studio 是可自行部署的转录与人工校对工作台。上传录屏、讲座或访谈材料，选择转录模型，按需加入参考文本，导出 Markdown 和 TXT；原始转录与中间结果独立保留。
 
-- [本地安装与 CPU 快速启动](docs/QUICKSTART.md)
-- [Docker 部署](docs/DOCKER.md) · [Linux GPU 部署](docs/DOCKER_LINUX.md) · [WSL2 安装](docs/INSTALL_NEW_MACHINE.md)
-- [ASR 模型与可选依赖](docs/ASR_BACKENDS.md)
-- [安全与数据说明](SECURITY.md) · [贡献指南](CONTRIBUTING.md)
-- [第三方依赖与授权检查](THIRD_PARTY_NOTICES.md)
+```text
+音视频 → 语音转录 → 可选参考文本 / PDF OCR → AI 校对 → Markdown + TXT
+```
+
+本地 ASR 不需要校对 API；PDF AI OCR 和 AI 校对需要你自己的兼容服务与凭据。应用没有内置登录鉴权，只应在可信本机或受访问控制的网络运行。
+
+## 可以做什么
+
+- **三语界面**：简体中文、English、日本語，界面语言与音频语言独立设置。
+- **多模型转录**：Whisper、Qwen3-ASR；还保留可选 Paraformer、Fun-ASR-Nano 接入，各模型能力和依赖不同。
+- **两种整理方式**：有参考材料的校对，或无参考材料的对谈转录整理。
+- **单任务与批量处理**：上传文件、目录配对、共享参考源或 YAML / JSON 清单。
+- **独立 PDF OCR**：识别单本或目录中的 PDF，保留成功页检查点，重试缺失页，下载 TXT 或 ZIP。
+- **可追溯结果**：查看任务状态、原始 ASR、参考文本、校对草稿与调用诊断，下载 Markdown / TXT。
+
+## 快速启动
+
+准备 Python **3.12**、Node.js **22**、npm 和 `ffmpeg`。处理 PDF 还需要 Poppler 的 `pdftoppm`。在项目根目录执行：
+
+```bash
+python3.12 -m venv ".venv"
+".venv/bin/python" -m pip install -r "requirements.txt"
+npm --prefix "frontend" ci
+npm --prefix "frontend" run build
+TRANSCRIPT_PROFILE=local_cpu ".venv/bin/python" -m uvicorn api_server:app \
+  --host 127.0.0.1 --port 8000 --workers 1
+```
+
+打开 **http://127.0.0.1:8000**。接口文档在 `/docs`，健康检查在 `/api/health`。
+
+- 无 GPU 时明确选择 `local_cpu`；默认 YAML 面向 GPU，网页已保存的默认设置也可能覆盖环境选择。
+- 第一次转录可能下载模型。模型依赖已安装，不代表权重已缓存或 GPU 推理已验收。
+- 只想转文字：打开“单阶段运行”，选择语音转录并上传音频，无需配置 AI 校对服务。
+- 开发时使用 `TRANSCRIPT_PROFILE=local_cpu ./start_web.sh`，前端地址为 `http://127.0.0.1:5173`；`Ctrl+C` 停止前后端。
+
+安装、缓存和运行环境细节见 [快速启动](docs/QUICKSTART.md)。
+
+## 语言设置
+
+### 界面语言
+
+在页面语言选择器切换 **简体中文 / English / 日本語**。偏好保存在当前浏览器，默认简体中文。切换界面不会清空当前表单，也不会改变任务的音频语言。
+
+### 音频语言
+
+在“运行设置”保存默认音频语言，也可在任务中单独选择：
+
+| 代码 | 用途 |
+| --- | --- |
+| `zh` | 中文，兼容既有默认配置 |
+| `en` | 英语 |
+| `ja` | 日语 |
+| `auto` | 由支持的转录模型检测音频语言 |
+
+已知录音语言时优先明确指定，尤其是短片段和混合语言材料。`auto` 是语种检测，不是翻译。英语、日语转录与校对保留原语言；中文讲话使用简体中文。界面语言不决定文稿语言。
+
+Whisper 与 Qwen 的语言参数会传入各自引擎；其他候选按实际支持能力校验，不支持的组合会报错，不会静默换模型。双 ASR 的两个候选都需要支持所选语言。具体范围、安装方式和时间戳限制见 [ASR 模型说明](docs/ASR_BACKENDS.md)。
+
+命令行配置仍使用已有 YAML 中的 `asr.language`，例如：
+
+```yaml
+asr:
+  language: ja
+```
+
+只修改现有配置的这一项，不要用这个片段替换完整配置。省略任务覆盖时继承已有配置；旧任务保留自己的快照，不会因后来切换界面或默认语言而被改写。
+
+公共默认提示词已适配原语言校对；已有私人提示词和任务自定义指令不会自动覆盖。如果其中要求统一输出中文，处理日英材料前需自行调整或在新任务中恢复公共默认指令。
+
+音频语言不自动覆盖参考材料的 OCR 语言。使用 Tesseract 时，按材料设置 `reference.ocr_languages`，并安装对应语言包；日语为 `jpn`，英语为 `eng`。AI OCR 同样应保留源文，不承担翻译。
+
+## 从录音得到整理稿
+
+1. 在“运行设置”选择 ASR 模型、运行配置和音频语言。
+2. 需要 AI 校对或 PDF AI OCR 时，配置兼容 **Responses API** 的 Base URL、客户端 API Key 和服务实际提供的模型 ID。应用不会替你部署网关。
+3. 新建单任务，选择处理方式，上传材料并检查本次参数。
+4. 完成后在“任务列表”预览中间结果，下载 Markdown / TXT；批量任务可下载成功子任务的 ZIP。
+5. 人工复核专名、数字、否定条件、引用和低置信片段，再使用或发布文稿。
+
+### 有参考材料
+
+`reference` 是默认模式，必须提供 TXT、Markdown、PDF 或网页参考源。录音和参考文件不必同名。
+
+```bash
+".venv/bin/python" "scripts/08_run_job.py" \
+  --video "/path/to/recording.mp4" \
+  --reference "/path/to/reference.txt" \
+  --output-dir "/path/to/output" \
+  --content-type reference --asr-language ja --profile local_cpu
+```
+
+### 无参考对谈
+
+`conversation` 不接受参考源。以下示例整理英语录音：
+
+```bash
+".venv/bin/python" "scripts/08_run_job.py" \
+  --video "/path/to/interview.mp4" \
+  --output-dir "/path/to/output" \
+  --content-type conversation --asr-language en --profile local_cpu
+```
+
+已有请求和任务清单应使用 `reference` / `conversation`，不保留其他场景模式别名。`book_name` / `chapter` 字段及 `--book-name` / `--chapter` 参数仍可提供材料名称与章节或部分，参与本次 ASR 提示词；不内置私人词库。
+
+批量清单、逐阶段处理、独立 PDF OCR、术语与诊断见 [命令行与处理指南](docs/CLI_GUIDE.md)。
+
+## AI 服务与数据
+
+默认 AI 后端 `codex_api` 连接 CPA（CLIProxyAPI）或其他兼容网关的标准 `/v1/responses`。名称沿用既有配置，不要求运行 codex-lb。Base URL 可填服务根地址或带 `/v1` 的地址，不要填完整 `/responses` 端点。
+
+Web 用户在“运行设置”填写连接；脚本也可以使用：
+
+```bash
+export CODEX_LB_BASE_URL="https://api.example.com/v1"
+export CODEX_LB_API_KEY="your-client-api-key"
+```
+
+这里的域名与 Key 是占位值，需要替换。模型 ID 必须与服务实际支持的一致。AI 校对和 PDF OCR 的快速模式独立、默认关闭，开启可能增加费用。
+
+- 网页保存的连接和 Key 位于 `data/jobs/frontend-settings.json`，应视为凭据文件并限制访问。
+- 上传文件位于 `data/uploads/`；每个任务的快照、中间结果和输出位于 `data/jobs/<job_id>/`。目录式流水线使用 `data/intermediate/` 与 `data/output/`。
+- OCR / AI 校对会把相应图像、转录和参考文本发送给你配置的服务；先确认材料授权、隐私政策和费用。
+- 日志和诊断可能包含模型响应及原文；不要公开运行数据、截图、环境文件或备份。
+
+参阅 [安全与数据说明](SECURITY.md)。
+
+## Docker 与 GPU
+
+Docker 默认部署面向 NVIDIA GPU。先按宿主平台进行只读预检：
+
+```bash
+# 原生 Ubuntu + NVIDIA
+bash "scripts/deploy_docker_linux.sh" --check
+
+# WSL2 内原生 Docker Engine + NVIDIA
+bash "scripts/deploy_docker_wsl2.sh" --check
+```
+
+检查通过后，由管理员按对应文档批准安装与部署。更新容器可能中断任务，`healthy` 不代表任务空闲。不要执行 `docker compose down -v` 清除模型缓存，也不要为解决权限问题递归改写已有资料属主。
+
+- [Docker 部署、数据卷与 API 连接](docs/DOCKER.md)
+- [原生 Ubuntu GPU 部署与验收](docs/DOCKER_LINUX.md)
+- [WSL2 本地安装](docs/INSTALL_NEW_MACHINE.md)
+
+## 开发与文档
+
+```bash
+".venv/bin/python" -m pip install -r "requirements-dev.txt"
+".venv/bin/python" -m pytest
+npm --prefix "frontend" run build
+```
+
+测试不等同于录音质量验收；模型、语言、音频和运行设备需要使用代表性材料人工检查。可选 ASR SDK 使用隔离 Python 环境，避免污染基础 Web / Whisper 环境。
+
+| 想了解什么 | 阅读位置 |
+| --- | --- |
+| 安装与第一条任务 | [快速启动](docs/QUICKSTART.md) |
+| 批量、阶段、OCR、排障 | [命令行与处理指南](docs/CLI_GUIDE.md) |
+| 模型、语言、双 ASR 与时间戳 | [ASR 模型说明](docs/ASR_BACKENDS.md) |
+| 流水线阶段与中间结构 | [阶段计划](docs/PIPELINE_PLAN.md) |
+| 贡献与检查 | [贡献指南](CONTRIBUTING.md) |
+| 工具协作历史 | [Claude Code 工作记录](docs/CLAUDE_CODE_WORKLOG.md) |
 
 ## 许可证
 
-ASR Studio 的项目原创代码采用 [MIT License](LICENSE)。第三方代码、依赖、模型权重和材料仍适用各自的授权条款，详见 [第三方依赖与授权说明](THIRD_PARTY_NOTICES.md)。项目许可证不替代第三方授权，也不免除发布者确认代码与材料来源的责任。
-
-应用目前没有内置登录鉴权，应在可信本机或受访问控制的网络内运行。默认 Docker 配置面向 NVIDIA GPU；CPU 用户先按快速启动指南运行。
-
-这个项目的目标是把录屏中的语音内容整理为适合人工校对的 Markdown 文稿。整体设计从一开始就考虑两种运行环境：
-
-- Ubuntu 24 本地开发环境，CPU 运行
-- Windows + WSL2 + NVIDIA 3060Ti 环境，后续可切换到 GPU 后端
-
-当前仓库已实现前九个阶段的最小可运行版本：
-
-- 第一阶段：配置读取与音频抽取
-- 第二阶段：ASR 抽象接口与第一版转录
-- 第三阶段：参考原文统一提取
-- 第四阶段：块级对齐与分段增强版（保留为辅助调试链路）
-- 第五阶段：块级内容候选分类（保留为辅助调试链路）
-- 第六阶段：AI 后端整篇整理，读取 ASR 与参考文本产出 Markdown 草稿；可选两个 ASR 的原始结果联合校对（默认 `codex_api`，`agy` / `codex_cli` 可显式指定）
-- 第七阶段：将阶段 6 的 Markdown 结果写入最终输出目录，并同步生成 TXT
-- 第八阶段：单任务 job 入口，支持显式指定视频、参考源和输出目录
-- 第九阶段：批量 job 入口，支持按 manifest、basename 配对和共享参考三种模式批量运行
-
-当前仍不包含最终分类定稿或自动发布能力。
-
-双 ASR 为显式可选功能：在任务参数选择不同的主模型和第二模型，两份原稿独立保存、串行推理后联合校对。默认仍是单 ASR，历史任务组合不变。配置、CLI、配对失败处理及单 TXT 文件模式边界见 [ASR 使用说明](docs/ASR_BACKENDS.md#双-asr-联合校对可选)。提示词已精简为语义保真与主动纠错；真实双模型与 GPT 质量验收待手动运行，不把本地测试当作语义质量证明。
-
-## 当前阶段已实现
-
-- 项目目录骨架
-- `config/settings.yaml` 配置读取
-- `local_cpu` / `wsl2_gpu` profile 机制
-- 扫描 `data/input/videos/` 下的视频文件
-- 使用 `ffmpeg` 抽取为 `wav`、单声道、16000 Hz 音频
-- 扫描 `data/input/audio/` 下的音频文件
-- 使用 `faster-whisper` 生成转录中间结果
-- 输出 `data/intermediate/asr/` 下的 JSON 和 TXT
-- 扫描 `data/input/reference/` 下的参考原文文件
-- 支持 `.txt` / `.md` / 可提取文本的 `.pdf`
-- 输出 `data/intermediate/extracted_text/` 下的 JSON 和 TXT
-- 读取 ASR 与参考文本中间结果并生成 `data/intermediate/aligned/` 对齐结果
-- 对齐阶段支持更细粒度分段、文本 normalization 和 top-k 匹配候选
-- 基于 aligned 结果输出保守的候选分类到 `data/intermediate/classified/`（可选辅助）
-- 基于 `asr.txt + extracted_text.txt + 提示词` 直接输出整篇 Markdown 草稿到 `data/intermediate/refined/`
-- 阶段 6 默认使用 `codex_api`，也支持本地 `codex` 与 `gemini` CLI 双后端整篇比较后生成单一 `final_markdown`
-- 阶段 7 将阶段 6 的 `final_markdown` 写入 `data/output/final/`
-- 十个最小 CLI 入口
-- 最基本单元测试
-
-## 当前阶段未实现
-
-- 参考原文结构化分析
-- 复杂对齐路径搜索
-- 最终分类定稿
-- `quote / lecture / qa` 分类
-- docx / html 等其他导出格式
-
-## 目录结构
-
-```text
-asr-studio/
-├── README.md
-├── .gitignore
-├── .env.example
-├── requirements.txt
-├── config/
-│   ├── settings.yaml
-│   └── default_prompts/
-│       ├── classify_and_correct.md
-│       ├── final_cleanup.md
-│       └── conversation_cleanup.md
-├── data/
-│   ├── input/
-│   │   ├── videos/
-│   │   ├── audio/
-│   │   └── reference/
-│   ├── jobs/
-│   ├── intermediate/
-│   │   ├── asr/
-│   │   ├── ocr/
-│   │   ├── extracted_text/
-│   │   ├── chunks/
-│   │   ├── aligned/
-│   │   ├── classified/
-│   │   └── refined/
-│   └── output/
-│       ├── review/
-│       ├── final/
-│       └── logs/
-├── scripts/
-│   ├── 00_run_main_pipeline.py
-│   ├── 01_extract_audio.py
-│   ├── 02_transcribe.py
-│   ├── 03_prepare_reference.py
-│   ├── 04_align.py
-│   ├── 05_classify.py
-│   ├── 06_refine.py
-│   ├── 07_export_markdown.py
-│   ├── 08_run_job.py
-│   ├── 09_run_batch_jobs.py
-│   └── run_pipeline.py
-├── src/
-│   ├── __init__.py
-│   ├── align_utils.py
-│   ├── asr_utils.py
-│   ├── classify_utils.py
-│   ├── config_loader.py
-│   ├── ffmpeg_utils.py
-│   ├── job_runner.py
-│   ├── refine_utils.py
-│   ├── reference_utils.py
-│   ├── runtime_utils.py
-│   └── schemas.py
-└── tests/
-    ├── helpers.py
-    ├── test_config.py
-    ├── test_extract_audio.py
-    ├── test_align.py
-    ├── test_classify.py
-    ├── test_export_markdown.py
-    ├── test_refine.py
-    ├── test_job_runner.py
-    ├── test_prepare_reference.py
-    └── test_transcribe.py
-```
-
-说明：
-
-- `config/settings.yaml` 是当前唯一运行配置入口
-- `data/` 目录下的叶子目录使用 `.gitkeep` 保留骨架
-- 第六阶段默认读取 `config/default_prompts/` 中的英文通用提示词；中文转录仍输出简体中文，不会因为提示词语言改为英文而翻译讲话
-- 私人提示词放在 `config/prompts/`，通过本地配置覆盖 `prompts` 路径；该目录不进入 Git 或 Docker 镜像
-- 自定义词库放在 `config/glossaries/` 或任意本地路径，通过 `--glossary-file` 显式指定；不再附带或自动加载领域词库
-- 第七阶段会直接写出 `data/intermediate/refined/*.json` 中的 `final_markdown`
-
-## 运行要求
-
-1. Python 3.12
-2. 系统已安装 `ffmpeg`
-3. 如需 PDF Codex API OCR，系统需安装 `pdftoppm`（通常来自 `poppler-utils`）
-4. 如使用远程 Cloudflare 反代的 `codex-lb`，建议系统安装 `curl`
-
-安装依赖：
-
-```bash
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-```
-
-新电脑的 WSL2 项目环境可以直接使用安装脚本：
-
-```bash
-bash scripts/install_wsl2_env.sh
-```
-
-详细步骤见 `docs/INSTALL_NEW_MACHINE.md`。该脚本只处理 WSL2 Linux 内部环境，不处理 Windows 宿主机安装。
-
-## Docker 部署
-
-本项目提供单服务 `trans` 的 FastAPI + Vue Docker 部署（宿主默认端口 8080），两个入口共用现有 Dockerfile / Compose：
-
-| 宿主平台 | 只读预检 | 部署与验收文档 |
-| --- | --- | --- |
-| 原生 Ubuntu 22.04/24.04/26.04 + NVIDIA，x86_64/systemd、本机 rootful Engine | `bash scripts/deploy_docker_linux.sh --check` | [`docs/DOCKER_LINUX.md`](docs/DOCKER_LINUX.md) |
-| WSL2 Debian/Ubuntu + NVIDIA，WSL 内原生 Engine | `bash scripts/deploy_docker_wsl2.sh --check` | [`docs/DOCKER.md`](docs/DOCKER.md) |
-
-预检后，由管理员确认风险再运行对应脚本（不带 `--check`），输入 `DEPLOY` 才安装缺失依赖并后台部署。Ubuntu 入口不经过 WSL2 / Docker Desktop，不提供完全不用 Docker 的安装方案；`--check` 退出码 `2` 表示信息不足，不是通过。首次建议 `DOCKER_BIND_IP=127.0.0.1`，默认无认证/HTTPS，不应暴露公网。旧 `app` 须在任务结束后人工停止/移除；已有 `trans` 更新可能中断内存任务，healthy 不代表空闲。现有 GPU profile 的历史 WSL2 名称可用于 Ubuntu，但须检查 Web 保存设置；构建成功不等于 Whisper/Qwen GPU 推理验收通过。
-
-## Codex API 模式
-
-当前默认 AI 后端为 `codex_api`，通过 CPA（CLIProxyAPI）或其他 OpenAI 兼容网关调用标准 Responses API。阶段 6 校对和 PDF OCR 默认均请求 `/v1/responses`，使用 `Authorization: Bearer <API Key>`，保留现有流式响应解析。
-
-优先在 Web「运行设置」的「CPA / OpenAI 兼容 API 连接」中填写 Base URL 和 **CPA 客户端 API Key**（CPA 配置的 `api-keys`，不是管理面板密钥），按需开启直连。旧 `codex_lb` 配置段、Web 保存字段和 `CODEX_LB_*` 环境变量名保持不变，仅名称兼容，并不要求继续部署 codex-lb。网页保存的地址/key 会覆盖环境默认；迁移时请手动更新，程序不会覆盖已保存值。
-
-### 独立快速模式
-
-网页的「AI 精修快速模式」和「PDF OCR 快速模式」独立控制各自的请求；单任务/批量页位于配置方案下方，PDF 书籍 OCR 和单阶段页只显示对应开关。「运行设置」可分别保存两个默认值，任务页的选择不会回写默认值。网页固定使用已配置的 API 网关，不再显示推理服务下拉框；CLI 的其它后端仍保留兼容。
-
-- 默认均关闭。开启时仅对应 `/v1/responses` 请求增加 `service_tier: priority`；关闭时不发送该参数。模型、推理强度、提示词、质量校验和 OCR 投递/并发均不改变。
-- 本次任务显式值（包括 `false`）优先于 Web 默认值，再继承 YAML：`llm.fast_mode` 与 `reference.codex_ocr_fast_mode`。API 对应字段为 `fast_mode`、`ocr_fast_mode`。原任务快照和补页参数保留实际值，重试不继承后来修改的快速模式默认值；旧任务缺少字段时按关闭处理。成功 OCR 页不会因调度模式改变而失效。
-- 快速模式只针对 `codex_api`。快速服务可能增加额度消耗或费用，是否获得加速取决于 CPA/上游账号与模型；请求携带 `priority` 不等于已确认加速。Codex OAuth 响应的 `service_tier: default` 也不能单独用于判断快速模式无效。
-- CPA 不应通过全局 `payload.override` 强制所有请求使用 `priority`，否则应用中的两个开关无法独立控制。应用不会自动改写 CPA 配置或静默降级为普通模式。
-
-本地脚本配置示例（CPA 示例端口为 `8317`，按实际部署调整）：
-
-```bash
-export CODEX_LB_BASE_URL="http://127.0.0.1:8317/v1"
-export CODEX_LB_API_KEY="你的 CPA 客户端 API key"
-```
-
-远程 CPA：
-
-```bash
-export CODEX_LB_BASE_URL="https://你的网关域名/v1"
-export CODEX_LB_API_KEY="你的 CPA 客户端 API key"
-```
-
-Base URL 可填服务根地址或带 `/v1` 的地址（支持尾部 `/` 和反代路径前缀），不会重复拼接成 `/v1/v1/responses`。不要填写 `/responses` 完整端点或管理页面地址。Docker 内 `127.0.0.1` 指容器自己，远端网关应填写实际可达的 HTTPS 地址。`llm.model`、`reference.codex_ocr_model` 和网页模型默认值必须匹配 CPA `/v1/models` 中的模型 ID；程序不会自动迁移旧网关的模型别名。
-
-如需旧 codex-lb 的专用校对端点，可显式将 `codex_lb.codex_responses_path` 设回 `/backend-api/codex/responses`；旧文件上传接口不属于 CPA 标准接口，当前校对/OCR 路径不使用它。
-
-阶段 3 参考原文准备会按配置默认使用 Codex API 做 PDF OCR：
-
-```bash
-.venv/bin/python scripts/03_prepare_reference.py
-```
-
-## 独立 PDF 书籍 OCR
-
-如果只需要把扫描版或图片型 PDF 书籍识别成文本，不需要放入录屏整理流水线，可直接运行独立命令：
-
-```bash
-.venv/bin/python scripts/10_ocr_pdf_books.py "/path/to/book.pdf"
-```
-
-也可以把一个书籍目录一次性处理；会递归扫描其中的 PDF，并在输出目录中保留原有子目录层级：
-
-```bash
-.venv/bin/python scripts/10_ocr_pdf_books.py \
-  "/path/to/books" \
-  --output-dir "/path/to/ocr-text"
-```
-
-默认输出目录是 `output/pdf/ocr/`，每本 PDF 对应一个同名 `.txt`。该命令不读取
-`data/input/reference/`，也不会生成录屏整理流水线的中间 JSON。它沿用当前的 Codex API
-逐页 OCR：每页单独识别、按页码重排，单页失败不会中止其余页面；只有全部页面齐全后才写出
-该书的新 TXT。独立 Web 工具还会持久化成功页，并可反复“重试缺失页”；页面可为每个任务单独
-设置图片投递间隔和最大并发数，补页时沿用原任务设置。使用前仍需按上文设置
-`CODEX_LB_BASE_URL` 和 `CODEX_LB_API_KEY`，并安装 `pdftoppm`。
-
-可临时覆盖书籍 OCR 模型：
-
-```bash
-.venv/bin/python scripts/10_ocr_pdf_books.py \
-  "/path/to/book.pdf" \
-  --ocr-model "gpt-6-luna" \
-  --ocr-reasoning-effort "high"
-```
-
-阶段 6 精修默认读取 `llm.backends`，当前默认也是 `codex_api`：
-
-```bash
-.venv/bin/python scripts/06_refine.py
-```
-
-如果想显式指定 API 后端：
-
-```bash
-.venv/bin/python scripts/06_refine.py --backend codex_api
-```
-
-统一入口也可以显式指定：
-
-```bash
-.venv/bin/python scripts/run_pipeline.py --stage refine --backend codex_api
-```
-
-单任务入口：
-
-```bash
-.venv/bin/python scripts/08_run_job.py \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output" \
-  --backend "codex_api"
-```
-
-批量入口：
-
-```bash
-.venv/bin/python scripts/09_run_batch_jobs.py \
-  --profile "wsl2_gpu_high_accuracy" \
-  --manifest "/path/to/jobs.yaml" \
-  --remote-concurrency 2 \
-  --backend "codex_api" \
-  --model "gpt-6.1-sol" \
-  --reasoning-effort "high" \
-  --ocr-model "gpt-6-luna" \
-  --ocr-reasoning-effort "high"
-```
-
-相关默认配置：
-
-- 阶段 6：`llm.backends = ["codex_api"]`
-- 阶段 6 默认模型：`llm.model = gpt-6.1-sol`（GPT-6.1 Sol）；读取旧 Web 保存的 `gpt-6-sol` 默认值时映射到新 ID，不改写历史任务配置
-- 阶段 6 reasoning 支持 `low`、`medium`、`high`、`xhigh`、`max`；默认值为 `llm.reasoning_effort = high`
-- PDF OCR：`reference.ai_ocr_backend = codex_api`
-- PDF OCR 模型：`reference.codex_ocr_model = gpt-6-luna`（GPT-6 Luna）
-- PDF OCR reasoning：`reference.codex_ocr_reasoning_effort = high`
-- PDF OCR 最大并发：`reference.codex_ocr_max_concurrency = 40`；只限制同时在途请求，必须为正整数，可在独立 PDF OCR 页面按任务调整
-- PDF OCR 投递间隔：`reference.codex_ocr_submit_interval_seconds = 5.0` 秒；每次只新增一张图片，不等待前一页完成，可在独立 PDF OCR 页面按任务调整，最终仍按原始页码拼接
-- PDF OCR 等待时间：`reference.ocr_timeout_seconds = 480`
-- `--backend both` 保持旧语义，只同时运行 `codex_cli` 和 `agy`
-
-临时指定阶段 6 模型和 reasoning：
-
-```bash
-.venv/bin/python scripts/06_refine.py \
-  --backend codex_api \
-  --model "gpt-6.1-sol" \
-  --reasoning-effort "high"
-```
-
-临时指定 PDF OCR 模型和 reasoning：
-
-```bash
-.venv/bin/python scripts/03_prepare_reference.py \
-  --ocr-model "gpt-6-luna" \
-  --ocr-reasoning-effort "high"
-```
-
-完整主链里也可以同时覆盖：
-
-```bash
-.venv/bin/python scripts/08_run_job.py \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output" \
-  --backend "codex_api" \
-  --model "gpt-6.1-sol" \
-  --reasoning-effort "high" \
-  --ocr-model "gpt-6-luna" \
-  --ocr-reasoning-effort "high"
-```
-
-## WSL2 Debian GPU 部署清单
-
-下面这份清单面向“全新 Debian WSL2 + NVIDIA 3060Ti”环境，目标是把当前项目跑到 `wsl2_gpu` / `wsl2_gpu_max_accuracy` profile。
-
-### 1. Windows 宿主机准备
-
-在 Windows PowerShell 中执行：
-
-```powershell
-wsl --install -d Debian
-wsl --update
-wsl --shutdown
-wsl -l -v
-```
-
-如果 Debian 还不是 WSL2，继续执行：
-
-```powershell
-wsl --set-version Debian 2
-```
-
-然后处理显卡侧：
-
-- 在 Windows 宿主机安装最新 NVIDIA Windows 驱动
-- 不要在 WSL 里的 Debian 再安装 Linux NVIDIA 显卡驱动
-- 更新完成后重新进入 Debian
-
-### 2. Debian 基础环境
-
-建议把仓库放在 Linux 文件系统中，例如 `~/code/asr-studio`，不要放在 `/mnt/c/...`。
-
-在 Debian 中执行：
-
-```bash
-sudo apt update
-sudo apt install -y git ffmpeg poppler-utils curl python3 python3-venv python3-pip
-```
-
-检查 Python 版本：
-
-```bash
-python3 --version
-```
-
-如果这里不是 `Python 3.12.x`，建议先补齐 3.12 再继续，因为项目当前运行要求是 Python 3.12。
-
-### 3. 克隆项目并创建虚拟环境
-
-```bash
-git clone <你的仓库地址> ~/code/asr-studio
-cd ~/code/asr-studio
-
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip wheel
-pip install -r requirements.txt
-```
-
-### 4. 安装 GPU 运行库
-
-`faster-whisper` 当前 GPU 运行依赖 `CUDA 12 + cuDNN 9` 对应的运行库。对这个项目，最直接的方式是在虚拟环境里安装 Python wheels：
-
-```bash
-. .venv/bin/activate
-pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
-```
-
-然后为当前 shell 设置动态库路径：
-
-```bash
-export LD_LIBRARY_PATH="$(
-  .venv/bin/python - <<'PY'
-import importlib.util
-
-paths = []
-for name in ("nvidia.cublas.lib", "nvidia.cudnn.lib"):
-    spec = importlib.util.find_spec(name)
-    if spec and spec.submodule_search_locations:
-        paths.extend(spec.submodule_search_locations)
-
-print(":".join(paths), end="")
-PY
-)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-```
-
-如果你希望以后登录 Debian 自动生效，可以把上面这行追加到 `~/.bashrc`。
-
-### 5. 先验证 WSL GPU 是否通
-
-先看 WSL 是否已经识别到 3060Ti：
-
-```bash
-nvidia-smi
-```
-
-如果 `nvidia-smi` 不在默认 PATH，可以尝试：
-
-```bash
-/usr/lib/wsl/lib/nvidia-smi
-```
-
-如果这一步失败，先回到 Windows 宿主机检查 WSL 更新和 NVIDIA 驱动，不要继续折腾项目依赖。
-
-### 6. 运行项目测试
-
-```bash
-.venv/bin/python -m pytest
-```
-
-### 7. 做一次 faster-whisper GPU 冒烟测试
-
-```bash
-.venv/bin/python - <<'PY'
-from faster_whisper import WhisperModel
-
-model = WhisperModel("small", device="cuda", compute_type="float16")
-print("GPU model load OK")
-PY
-```
-
-如果这里输出 `GPU model load OK`，说明 WSL2 + CUDA runtime + `faster-whisper` 这条链已经打通。
-
-### 8. 开始跑项目
-
-平衡档：
-
-```bash
-.venv/bin/python "scripts/08_run_job.py" \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output" \
-  --profile "wsl2_gpu"
-```
-
-最高精度档：
-
-```bash
-.venv/bin/python "scripts/08_run_job.py" \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output" \
-  --profile "wsl2_gpu_max_accuracy"
-```
-
-### 9. 常见问题
-
-- `nvidia-smi` 不通：优先检查 Windows 驱动和 `wsl --update`
-- 报 `libcublas.so` / `libcudnn.so` 找不到：通常是 `LD_LIBRARY_PATH` 没生效
-- `pytest` 通过但 GPU 仍跑不动：用上面的 GPU 冒烟测试单独排查
-- 不要在 `/mnt/c/...` 下长期跑项目，I/O 会明显更慢
-
-### 10. 官方参考
-
-- Microsoft WSL 安装: https://learn.microsoft.com/en-us/windows/wsl/install
-- Microsoft WSL 基本命令: https://learn.microsoft.com/en-us/windows/wsl/basic-commands
-- NVIDIA CUDA on WSL User Guide: https://docs.nvidia.com/cuda/wsl-user-guide/index.html
-- faster-whisper README: https://github.com/SYSTRAN/faster-whisper
-
-## 配置
-
-默认配置文件为 `config/settings.yaml`。
-
-当前支持五个 profile：
-
-- `local_cpu`
-- `local_cpu_high_accuracy`
-- `wsl2_gpu`
-- `wsl2_gpu_high_accuracy`
-- `wsl2_gpu_max_accuracy`
-
-可以通过以下方式切换：
-
-- 配置文件中的 `runtime.profile`
-- 环境变量 `TRANSCRIPT_PROFILE`
-- CLI 参数 `--profile`
-
-优先级从高到低依次为：CLI 参数、环境变量、配置文件默认值。
-
-## Web UI 使用方式
-
-当前仓库已经包含一个 Web UI，默认只允许本机访问，也可以显式开启局域网访问：
-
-- 后端：FastAPI，默认监听 `127.0.0.1:8000`
-- 前端：Vue 3 + TypeScript + Naive UI，默认监听 `127.0.0.1:5173`
-
-### 1. 首次安装前端依赖
-
-```bash
-cd "frontend"
-npm install
-cd ".."
-```
-
-### 2. 一键启动 Web UI
-
-推荐在项目根目录使用一键启动入口，同时拉起后端和前端：
-
-```bash
-./start_web.sh
-```
-
-如果希望启动后自动打开浏览器：
-
-```bash
-./start_web.sh --open-browser
-```
-
-如果要让同一局域网内其他人访问，在主机上执行：
-
-```bash
-./start_web.sh --lan
-```
-
-脚本会监听 `0.0.0.0` 并打印可分享的局域网访问地址，例如：
-
-```text
-http://192.168.1.20:5173
-```
-
-如果项目运行在 **Windows 的 WSL2** 中，需要额外注意：WSL2 默认 NAT 网络下，
-`./start_web.sh --lan` 只是让服务在 WSL 内监听 `0.0.0.0`，局域网其他电脑通常不能直接访问
-WSL 内部 IP。脚本检测到 WSL 后会额外打印一组 Windows 管理员 PowerShell 命令，格式类似：
-
-```powershell
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=5173 connectaddress=<WSL_IP> connectport=5173
-netsh advfirewall firewall add rule name="ASR Studio Web 5173" dir=in action=allow protocol=TCP localport=5173
-```
-
-执行后，局域网其他电脑应访问 **Windows 主机的局域网 IP**，例如：
-
-```text
-http://192.168.1.20:5173
-```
-
-说明：
-
-- `<WSL_IP>` 可以用 WSL 内的 `hostname -I` 查看，启动脚本也会尽量自动打印。
-- WSL 重启后内部 IP 可能变化；如果访问失效，重新执行启动脚本打印的 `portproxy` 命令。
-- Web UI 只需要暴露前端端口 `5173`，页面里的 `/api`、上传和下载会由前端开发服务器代理到 WSL 内部后端。
-- 如果你已启用 WSL mirrored networking，局域网直连会更接近普通 Linux 主机，但仍需要确认 Windows / Hyper-V 防火墙允许入站端口 `5173`。
-
-其他人在浏览器打开这个地址后，点击“选择并上传本机视频 / 参考源”时，打开的是**使用者自己电脑**的文件选择器；选中文件后会上传到主机的 `data/uploads/`，流水线再从上传后的服务器路径执行处理。
-
-在 Web UI 中，输出目录是主机上的服务器保存位置，普通局域网使用者不需要填写或进入这个目录。任务完成后进入 `任务列表`：
-
-- 单任务：点击任务卡片上的 `下载结果`，选择下载 Markdown 或 TXT。
-- 批量任务：点击 `下载全部结果` 获取成功子任务的 ZIP 包；展开批量任务后，也可以在子任务列表中分别下载每个成功子任务的结果。
-
-也可以直接使用 Python 脚本：
-
-```bash
-.venv/bin/python "scripts/start_web.py"
-```
-
-一键启动后可访问：
-
-- `http://127.0.0.1:5173`：Web UI 页面
-- `http://127.0.0.1:8000/docs`：FastAPI Swagger 文档
-- `http://127.0.0.1:8000/api/config`：当前 profile / backend 配置
-
-如需单独调试后端，也可以在项目根目录执行：
-
-```bash
-.venv/bin/python "api_server.py"
-```
-
-### 3. 启动前端开发服务器
-
-如需单独调试前端，另开一个终端，在项目根目录执行：
-
-```bash
-cd "frontend"
-npm run dev -- --host 127.0.0.1
-```
-
-然后在浏览器打开：
-
-```text
-http://127.0.0.1:5173
-```
-
-### 4. 页面说明
-
-- `单任务`：对应 `scripts/08_run_job.py`
-- `批量任务`：对应 `scripts/09_run_batch_jobs.py`
-- `单阶段`：对应 `scripts/run_pipeline.py --stage`
-- `PDF OCR`：独立上传单本 PDF 或 PDF 目录，识别完成后逐本下载 TXT，或一键下载当前项目中完整书籍的 TXT ZIP（保留子目录，附未完成书籍清单）；失败页可重试并沿用成功页检查点。支持二次确认删除项目，运行中禁止删除；仅清理任务记录、结果与检查点，保留上传 PDF。已移除 EPUB 导出
-- `任务列表`：查看 `data/jobs/` 下已有任务状态，下载单任务结果、批量结果 ZIP 和批量子任务结果
-- `设置`：配置 Codex API 的 base URL、API key、阶段 6 模型和 PDF OCR 模型；“API 直连
-  （绕过代理）”默认关闭，开启并保存后只把当前 Codex API 主机加入新任务的 `NO_PROXY`，不会清除或
-  改写其他网站的代理设置，也不需要重启 Web 服务
-- 单任务视频、参考源、术语词表会通过浏览器选择使用者本机文件并上传到主机
-- 批量任务的视频目录和参考目录会通过浏览器选择使用者本机目录，并把受支持文件上传到主机
-
-### 5. 使用注意
-
-- Web UI 依赖后端 API，日常使用优先执行 `./start_web.sh`
-- `./start_web.sh` 会在同一个终端内管理前端和后端，按 `Ctrl+C` 可同时停止两个服务
-- Web UI 设置会保存到 `data/jobs/frontend-settings.json`，该路径默认被 `.gitignore` 忽略
-- 上传文件会保存到 `data/uploads/`，该目录默认被 `.gitignore` 忽略
-- PDF OCR 的上传文件会位于 `data/uploads/pdf-ocr/`；结果、任务状态和逐页检查点会隔离保存在 `data/jobs/pdf-ocr/`，不会写入录屏整理流水线的数据目录
-- 局域网访问前，请确保主机防火墙允许前端端口 `5173` 和后端端口 `8000`
-- 单阶段页面运行的是**当前配置文件绑定的数据目录**，不是临时单文件运行器
-- 长任务使用 `state.json` 持久化状态，页面会通过轮询显示 `pending / running / success / failed`
-
-## 运行方式
-
-直接运行音频抽取：
-
-```bash
-.venv/bin/python scripts/01_extract_audio.py
-```
-
-指定 profile：
-
-```bash
-.venv/bin/python scripts/01_extract_audio.py --profile local_cpu
-```
-
-通过统一入口运行音频抽取阶段：
-
-```bash
-.venv/bin/python scripts/run_pipeline.py --stage extract-audio
-```
-
-直接运行转录阶段：
-
-```bash
-.venv/bin/python scripts/02_transcribe.py
-```
-
-通过统一入口运行转录阶段：
-
-```bash
-.venv/bin/python scripts/run_pipeline.py --stage transcribe
-```
-
-直接运行参考原文准备阶段：
-
-```bash
-.venv/bin/python scripts/03_prepare_reference.py
-```
-
-通过统一入口运行参考原文准备阶段：
-
-```bash
-.venv/bin/python scripts/run_pipeline.py --stage prepare-reference
-```
-
-直接运行对齐阶段：
-
-```bash
-.venv/bin/python scripts/04_align.py
-```
-
-通过统一入口运行对齐阶段：
-
-```bash
-.venv/bin/python scripts/run_pipeline.py --stage align
-```
-
-直接运行候选分类阶段：
-
-```bash
-.venv/bin/python scripts/05_classify.py
-```
-
-通过统一入口运行候选分类阶段：
-
-```bash
-.venv/bin/python scripts/run_pipeline.py --stage classify
-```
-
-直接运行阶段 6 精修：
-
-```bash
-.venv/bin/python scripts/06_refine.py
-```
-
-只运行 agy：
-
-```bash
-.venv/bin/python scripts/06_refine.py --backend agy
-```
-
-显式运行 Codex API：
-
-```bash
-.venv/bin/python scripts/06_refine.py --backend codex_api
-```
-
-指定 Codex API 模型和 reasoning：
-
-```bash
-.venv/bin/python scripts/06_refine.py \
-  --backend codex_api \
-  --model "gpt-6.1-sol" \
-  --reasoning-effort "high"
-```
-
-同时运行旧 Codex CLI 和 agy：
-
-```bash
-.venv/bin/python scripts/06_refine.py --backend both
-```
-
-通过统一入口运行阶段 6：
-
-```bash
-.venv/bin/python scripts/run_pipeline.py --stage refine
-```
-
-阶段 6 说明：
-
-- 默认按 `config/settings.yaml` 中的 `llm.backends` 运行后端，当前默认是 `codex_api`
-- 可用 `--backend codex_api|codex_cli|agy|both` 临时覆盖
-- `codex_api` 通过 CPA / OpenAI 兼容网关调用；脚本可使用保留名称的 `CODEX_LB_BASE_URL` 和 `CODEX_LB_API_KEY`，Web 任务也可使用已保存的连接设置
-- 阶段 6 模型可用 `--model` 临时覆盖，reasoning 可用 `--reasoning-effort` 临时覆盖
-- `both` 保持旧语义，只展开为 `codex_cli + agy`
-- Gemini 主模型默认是 `Gemini 3.1 Pro (High)`
-- 主输入是 `data/intermediate/asr/*.txt` 和同 basename 的 `data/intermediate/extracted_text/*.txt`
-- 不再依赖 `classified.json` 作为阶段 6 的主输入
-- 提示词贴近网页端单轮整理模式，直接要求输出最终 Markdown
-- 单模型模式会继续写单一 `final_markdown`
-- 非 fallback AI 后端会写主索引文件 `basename.json`，并按后端额外写侧车文件，例如：
-  - `basename.codex_api.json`
-  - `basename.codex_cli.json`
-  - `basename.agy.json`
-- 双模型模式下主索引文件不会自动选主结果，`final_markdown` 留空，需人工决定使用哪一份
-- `final_markdown` 已直接包含：
-  - 原文朗读引用块 `>`
-  - 讲解普通段落
-  - `## 提问环节`
-- 模型输出会先校验为 JSON 对象并要求 `final_markdown` 非空；最终交付校验只拒绝程序回退、Unicode
-  替换字符 `�` 和明确的 `# source` 占位标题，不再强制一级标题或固定的标题/正文空行样式
-- 如果所有请求后端都失败，会回退到本地保守整理逻辑
-
-阶段 6 的 `codex_api` 调用会保留可追踪诊断：
-
-- 汇总文件默认位于 `data/output/logs/refine/diagnostics.json`；单任务目录中对应
-  `data/jobs/<job_id>/output/logs/refine/diagnostics.json`，也可通过任务产物中的“阶段 6 调用诊断”读取
-- 每次尝试的完整证据位于汇总文件所列的 `diagnostic_directory`，包括脱敏请求摘要、传输指标、
-  完整或中断时已收到的 SSE、SSE 事件摘要、提取正文、JSON 解析结果、错误和最终校验原因
-- 请求摘要不保存 API Key、Authorization 或 Prompt 正文，只保存模型、端点、代理地址以及长度和
-  SHA-256；模型响应正文会完整保存，因此诊断目录仍应按任务数据的权限保护
-- 为保证失败证据完整，当前不截断 SSE，也不自动清理历史诊断；长文稿和多次重跑会增加磁盘占用，
-  需要由部署方根据实际用量制定备份或清理策略
-
-直接运行阶段 7 写入最终 Markdown：
-
-```bash
-.venv/bin/python scripts/07_export_markdown.py
-```
-
-通过统一入口运行阶段 7：
-
-```bash
-.venv/bin/python scripts/run_pipeline.py --stage export-markdown
-```
-
-阶段 7 说明：
-
-- 输入为 `data/intermediate/refined/*.json`
-- 输出为 `data/output/final/*.md` 与 `data/output/final/*.txt`
-- 当前生成的是最终校对稿，Markdown 供保留结构阅读，TXT 供纯文本下载和校对
-- 阶段 7 只负责把阶段 6 已生成的 `final_markdown` 落盘
-- 不再负责正文结构重组
-
-当前推荐主链：
-
-- `extract-audio`
-- `transcribe`
-- `prepare-reference`
-- `refine`
-- `export-markdown`
-
-`align` / `classify` 当前保留为辅助调试链路，不再是默认成稿主链。
-默认整链运行时，应优先按以上五个阶段串行执行，而不是把 `align` / `classify` 作为必经步骤。
-
-一键运行当前推荐主链：
-
-```bash
-.venv/bin/python scripts/00_run_main_pipeline.py
-```
-
-### 任务类型与已有清单迁移
-
-- `reference`：参考材料校对，默认模式，必须提供参考源。
-- `conversation`：无参考对谈整理，不接受参考源。
-
-Web、API、单任务 CLI 与批量清单统一使用以上两个 `content_type` 值，不保留其他场景模式别名。已有请求、手写清单或任务快照若使用旧的参考型模式值，需先将 `content_type` 改为 `reference`；原始材料和已生成结果不会自动改写。`book_name` / `chapter` 字段与 `--book-name` / `--chapter` 参数保留，分别表示可选材料名称与章节或部分，用于 ASR 提示词。
-
-推荐的单任务运行方式：
-
-```bash
-.venv/bin/python scripts/08_run_job.py \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output"
-```
-
-使用新的更激进 GPU 高精度预设：
-
-```bash
-.venv/bin/python scripts/08_run_job.py \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output" \
-  --profile "wsl2_gpu_max_accuracy"
-```
-
-指定阶段 6 使用 Gemini：
-
-```bash
-.venv/bin/python scripts/08_run_job.py \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output" \
-  --profile "wsl2_gpu_max_accuracy" \
-  --backend "agy"
-```
-
-指定阶段 6 使用 Codex API：
-
-```bash
-.venv/bin/python scripts/08_run_job.py \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output" \
-  --backend "codex_api"
-```
-
-指定阶段 6 与 PDF OCR 的 Codex API 模型：
-
-```bash
-.venv/bin/python scripts/08_run_job.py \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output" \
-  --backend "codex_api" \
-  --model "gpt-6.1-sol" \
-  --reasoning-effort "high" \
-  --ocr-model "gpt-6-luna" \
-  --ocr-reasoning-effort "high"
-```
-
-同时运行旧 Codex CLI 和 agy：
-
-```bash
-.venv/bin/python scripts/08_run_job.py \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --output-dir "/path/to/output" \
-  --backend "both"
-```
-
-可选附加术语词表：
-
-```bash
-.venv/bin/python scripts/08_run_job.py \
-  --video "/path/to/video.mp4" \
-  --reference "/path/to/reference.pdf" \
-  --book-name "示例材料" \
-  --chapter "第八章" \
-  --glossary-file "/path/to/chapter_terms.txt" \
-  --output-dir "/path/to/output"
-```
-
-单任务入口说明：
-
-- 不再要求视频文件和参考文件同 basename
-- 每次运行都会创建独立的 `data/jobs/<job_id>/`
-- 参考源支持：
-  - 本地 `txt`
-  - 本地 `md`
-  - 本地 `pdf`
-  - 公开网页链接
-- 网页链接若目标是 PDF，会先下载 PDF，再按阶段 3 处理
-- 最终 Markdown 与 TXT 会额外复制到 `--output-dir`
-- 默认不加载任何内置词库；仅显式传入的 `--glossary-file`、材料名称和章节或部分参与构造本次任务的 `asr.initial_prompt`
-- `--book-name`、`--chapter`、`--glossary-file` 会追加到本次任务的 `initial_prompt`
-- `--backend` 只覆盖本次任务的阶段 6 后端选择，可用值为 `codex_api`、`codex_cli`、`agy`、`both`
-- 单任务入口同样支持 `--model`、`--reasoning-effort`、`--ocr-model`、`--ocr-reasoning-effort`
-- 附加词表文件格式为一行一个词条
-- `local_cpu` 与 `wsl2_gpu` 使用 `beam_size = 5`
-- `local_cpu_high_accuracy` 与 `wsl2_gpu_high_accuracy` 使用 `beam_size = 8`
-- `wsl2_gpu_max_accuracy` 使用 `large-v3-turbo`，并将 `beam_size` 提高到 `10`
-
-推荐的 GPU 批量运行方式：
-
-manifest 模式：
-
-```bash
-.venv/bin/python scripts/09_run_batch_jobs.py \
-  --profile "wsl2_gpu_high_accuracy" \
-  --manifest "/path/to/jobs.yaml" \
-  --remote-concurrency 2 \
-  --backend "codex_api" \
-  --model "gpt-6.1-sol" \
-  --reasoning-effort "high" \
-  --ocr-model "gpt-6-luna" \
-  --ocr-reasoning-effort "high"
-```
-
-`jobs.yaml` 示例：
-
-```yaml
-jobs:
-  - video: /data/videos/session-01.mp4
-    reference: /data/reference/session-01.txt
-    output_dir: /data/output
-    book_name: 示例材料
-    chapter: 第一章
-
-  - video: /data/videos/session-02.mp4
-    reference: https://example.com/session-02
-    output_dir: /data/output
-    glossary_file: /data/glossary/session-02.txt
-```
-
-basename 配对模式：
-
-```bash
-.venv/bin/python scripts/09_run_batch_jobs.py \
-  --profile "wsl2_gpu_high_accuracy" \
-  --videos-dir "/data/videos" \
-  --reference-dir "/data/reference" \
-  --output-dir "/data/output" \
-  --book-name "示例材料" \
-  --chapter "第一编" \
-  --remote-concurrency 2 \
-  --backend "both"
-```
-
-目录约定示例：
-
-```text
-/data/videos/
-  session-01.mp4
-  session-02.mp4
-
-/data/reference/
-  session-01.txt
-  session-02.md
-```
-
-共享参考模式：
-
-```bash
-.venv/bin/python scripts/09_run_batch_jobs.py \
-  --profile "wsl2_gpu_high_accuracy" \
-  --videos-dir "/data/videos" \
-  --shared-reference "/data/reference/shared.txt" \
-  --output-dir "/data/output" \
-  --book-name "示例材料" \
-  --chapter "导读" \
-  --remote-concurrency 2
-```
-
-如果共享参考是网页链接，可直接把 `--shared-reference` 换成公开 URL。
-
-批量入口说明：
-
-- GPU 高精度建议优先使用 `wsl2_gpu_high_accuracy`
-- `prepare-reference` 与 `refine` 默认按 `--remote-concurrency 2` 并发运行
-- `extract-audio` 与 `transcribe` 仍按单任务顺序执行，避免本地资源阶段过载
-- `--backend` 只覆盖本次批量任务的阶段 6 后端选择，可用值为 `codex_api`、`codex_cli`、`agy`、`both`
-- 批量入口同样支持 `--model`、`--reasoning-effort`、`--ocr-model`、`--ocr-reasoning-effort`
-- 每次批量运行都会写出 `data/jobs/batches/<batch_id>/manifest.json`
-- 每次批量运行都会写出 `data/jobs/batches/<batch_id>/summary.json` 与 `summary.md`
-- 批量退出码：
-  - `0` 表示全部成功
-  - `2` 表示部分失败
-  - `1` 表示全部失败或入口参数无效
-
-运行测试：
-
-```bash
-.venv/bin/python -m pytest
-```
-
-## 音频抽取行为
-
-- 扫描目录：`data/input/videos/`
-- 支持扩展名：`.mp4`、`.mkv`、`.mov`、`.webm`
-- 输出目录：`data/input/audio/`
-- 输出格式：`wav`
-- 声道数：单声道
-- 采样率：16000 Hz
-- 默认不覆盖已有输出，只有在配置中 `audio.overwrite: true` 时才覆盖
-
-如果出现以下情况会给出明确错误：
-
-- `ffmpeg` 不存在
-- 输入目录不存在或没有可处理视频
-- 配置文件不存在或 profile 无效
-
-## 转录行为
-
-- 扫描目录：`data/input/audio/`
-- 支持扩展名：`.wav`、`.mp3`、`.m4a`、`.flac`
-- 使用 `faster-whisper`
-- 从 profile 读取 `device`、`asr_compute_type`、`asr_model_size`、`beam_size`
-- 若 profile 未显式配置 `beam_size`，会回退到全局 `asr.beam_size`
-- 输出目录：`data/intermediate/asr/`
-- 每个音频输出：
-  - `<basename>.json`
-  - `<basename>.txt`
-
-JSON 中间结果至少包含：
-
-- `source_file`
-- `engine`
-- `model_size`
-- `device`
-- `compute_type`
-- `language`
-- `segments`
-- `full_text`
-
-如果出现以下情况会给出明确错误：
-
-- 未安装 `faster-whisper`
-- `device` 配置无效
-- `cuda` profile 不能正常初始化
-- 音频目录为空
-
-## 参考原文准备行为
-
-- 扫描目录：`data/input/reference/`
-- 当前仅处理顶层文件，不递归子目录
-- 支持扩展名：`.txt`、`.md`、`.pdf`
-- 输出目录：`data/intermediate/extracted_text/`
-- 每个参考文件输出：
-  - `<basename>.txt`
-  - `<basename>.json`
-
-JSON 中间结果至少包含：
-
-- `source_file`
-- `source_type`
-- `output_text_file`
-- `extraction_method`
-- `success`
-- `text_length`
-- `warnings`
-
-PDF 支持边界：
-
-- 当前 PDF 默认优先尝试 `codex_api` OCR
-- `codex_api` OCR 先读取 PDF 总页数，再由受限工作线程按需用 `pdftoppm` 渲染当前页，并通过 CPA / OpenAI 兼容网关的 `/v1/responses` 发送一个 `input_image`；页面完成后立即释放图片数据，不会一次性把整本书的 PNG/base64 保存在内存中
-- 独立 PDF OCR 任务会把每个成功页原子写入任务目录；单页失败后继续处理其余页面并记录完整失败页码，点击“重试缺失页”只重新请求没有成功检查点的页面
-- 最终 TXT 仍只在所有页检查点齐全后按页序生成，在真实页边界插入 `----- OCR_PAGE_BREAK: 1 -> 2 -----`（页码随原 PDF 变化）；单页检查点不包含新增标记，服务或任务进程重启不会删除已成功页面
-- `codex_api` OCR 默认模型是 `gpt-6-luna`，reasoning effort 是 `high`
-- 直接运行阶段 3 时，可用 `--ocr-model` 和 `--ocr-reasoning-effort` 临时覆盖 OCR 模型与 reasoning
-- 如果 Codex API OCR 失败，但 PDF 自带文字层可提取，则回退到文字层提取
-- 如果 Codex API OCR 失败，且文字层为空或接近空，并且 `reference.run_ocr_when_needed = true`，会继续尝试其他 AI OCR 后端，最后回退到 `ocrmypdf + tesseract`
-- OCR sidecar 默认写入 `data/intermediate/ocr/*.codex_api_ocr.txt`
-- 当前 OCR 路线面向中文扫描版 PDF
-- 如果 OCR 结果仍为空或接近空，会提示当前 PDF 质量可能较差
-
-## OCR 文本整合
-
-Codex API PDF OCR 合并各页时保留页内自然段和换行，仅在真实 PDF 页边界加入独立一行的 `----- OCR_PAGE_BREAK: 1 -> 2 -----`，并以空行隔开；页码随原 PDF 变化，空白页也保留边界。标记不代表自然段结束，便于后续 AI 区分物理换页与普通换行。阶段 6 的 `final_cleanup.md` 和 `classify_and_correct.md` 已说明标记含义、按语义衔接硬换行、保留注释及最终文稿去除标记的规则。无参考文本的对谈提示词不变。
-
-标记只加入整本合并输出，单页检查点保留原 OCR 文本。阶段 4 参考块切分、阶段 6 高置信预替换及参考相似度评分会排除完整工程标记行，不让其参与正文匹配；源 TXT 和模型全文附件仍保留标记。普通书籍横线、数字及非完整标记不会被过滤。EPUB 导出已移除，不再生成 EPUB，也不做额外模型排版。
-
-独立 PDF OCR 后台使用专用 OCR 提示词，要求识别正文、脚注、尾注及其编号；提示词不在前端页面展示。校对流程中的参考文本准备仍使用原有的纯文本 OCR 提示词，不会套用独立书籍 OCR 的注释要求。
-
-```bash
-.venv/bin/python scripts/11_integrate_ocr_txt.py \
-  /path/to/ocr-pages/ \
-  --output /path/to/book.integrated.txt
-```
-
-目录片段会按文件名中的数字自然排序，例如 `page-1.txt`、`page-2.txt`、`page-10.txt`。整合输出不会覆盖源 TXT。
-
-上述通用 TXT 整合脚本只按自然顺序拼接任意片段，不知道 PDF 物理页码，不生成换页标记；不得把章节片段或多本书误当成 PDF 页。
-
-旧版整本 TXT 不会被自动覆盖。要离线生成带换页标记的新 TXT，应调用公共 PDF OCR 合并流程（`ocr_pdf_book_batch` / `run_codex_api_pdf_ocr`），使用原 PDF、原 OCR 模型与推理强度、对应身份的页检查点，以及独立输出路径。全部页检查点存在时不发起模型请求；有缺页则会尝试识别缺失页，不应误称为纯离线重建。通用 TXT 整合 CLI 不等价于这种重建。已粘连且没有页检查点的旧 TXT 无法可靠恢复原始段落。
-
-## 对齐与分段行为
-
-- 读取目录：`data/intermediate/asr/` 与 `data/intermediate/extracted_text/`
-- 当前只处理同 basename 可配对的文件
-- ASR 分段：按相邻 segments 保守合并，受最小/最大字符数和时长阈值控制
-- reference 分段：优先按空行切段，再按句号、问号、叹号、分号等细分
-- 匹配前会做轻量 normalization：
-  - 统一空白
-  - 统一全角半角
-  - 统一常见分隔符与标点差异
-- 对齐方法：基于 `rapidfuzz` 的轻量组合评分
-- 输出目录：`data/intermediate/aligned/`
-- 每个配对文件输出：
-  - `<basename>.json`
-
-aligned JSON 至少包含：
-
-- `source_asr_file`
-- `source_reference_file`
-- `alignment_method`
-- `total_asr_blocks`
-- `total_reference_blocks`
-- `blocks`
-
-每个 `block` 现在至少包含：
-
-- `block_id`
-- `source_segment_ids`
-- `start`
-- `end`
-- `asr_text`
-- `matched_reference_text`
-- `match_score`
-- `match_status`
-- `top_matches`
-
-当前能力边界：
-
-- 仍然只是块级对齐增强版
-- 不做一对多 / 多对一复杂对齐
-- 不做全局最优路径搜索
-- 不做分类
-- 不做 LLM 校对
-
-## 候选分类行为
-
-- 读取目录：`data/intermediate/aligned/`
-- 输出目录：`data/intermediate/classified/`
-- 当前只做候选分类，不做最终定稿
-- 当前输出标签包括：
-  - `quote_candidate`
-  - `mixed_candidate`
-  - `lecture_candidate`
-  - `qa_candidate`
-  - `intro_candidate`
-
-分类主要依据：
-
-- `match_score`
-- `match_status`
-- top-1 与 top-2 的分差
-- 问答关键词
-- 讲解口语标记
-- 开场播报关键词
-
-每个 `classified_block` 至少包含：
-
-- `block_id`
-- `start`
-- `end`
-- `asr_text`
-- `matched_reference_text`
-- `match_score`
-- `match_status`
-- `top_matches`
-- `classification`
-- `classification_reason`
-- `confidence`
-
-当前能力边界：
-
-- 这只是候选分类层，不是最终分类结果
-- 不做 LLM 校对
-- 不做最终 Markdown 拼装
-
-## 下一阶段建议
-
-下一步最适合优先做的事情是引入“LLM 校对精修阶段”：
-
-- 基于 `data/intermediate/classified/` 的候选分类结果做保守精修
-- 先只处理文本校对和分类确认，不急着做最终 Markdown 拼装
-- 继续保持中间结果可追踪，避免一步到位变成黑箱
+项目原创代码采用 [MIT License](LICENSE)。第三方代码、依赖、模型权重与输入材料仍适用各自授权，详见 [第三方依赖与授权说明](THIRD_PARTY_NOTICES.md)。

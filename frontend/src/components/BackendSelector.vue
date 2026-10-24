@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../i18n";
 import { NSelect } from "naive-ui";
 import { computed } from "vue";
 
@@ -27,7 +28,7 @@ const selectOptions = computed(() =>
     :value="modelValue"
     :options="selectOptions"
     :loading="loading"
-    :placeholder="placeholder ?? '选择推理服务'"
+    :placeholder="placeholder ?? t('选择推理服务')"
     :disabled="disabled"
     clearable
     @update:value="emit('update:modelValue', $event)"

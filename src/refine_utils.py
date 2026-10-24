@@ -330,7 +330,7 @@ def split_text_into_paragraphs(text: str) -> list[str]:
 def split_text_into_sentences(text: str) -> list[str]:
     units: list[str] = []
     for paragraph in split_text_into_paragraphs(text):
-        parts = re.split(r"(?<=[。！？!?；;])", paragraph)
+        parts = re.split(r"(?<=[。！？!?；;])|(?<=\.)\s+(?=[A-Z])", paragraph)
         normalized_parts = [normalize_inline_text(part) for part in parts if normalize_inline_text(part)]
         if normalized_parts:
             units.extend(normalized_parts)
@@ -638,7 +638,7 @@ def build_minimal_edit_prompt(
         "你的任务仅限于：",
         "1. 添加标点与断句。",
         "2. 修正明显错字、别字、同音误识别。",
-        "3. 统一为简体中文。",
+        "3. 保留原语言：中文使用简体中文；英语、日语及混合语段不得翻译。",
         "4. 删除你判断为无意义的口语噪音，但删除噪音必须记录。",
         "",
         "绝对禁止：",
@@ -681,7 +681,7 @@ def build_markdown_assemble_prompt(
         "你现在只负责 Markdown 结构整理。",
         "你的任务仅限于：识别引用块、普通讲解段落和提问环节，并输出最终 Markdown。",
         "不得改写 edited_plain_text 的措辞，不得总结，不得压缩，不得新增说明。",
-        "若无法判断结构，保留原顺序和原文措辞。",
+        "若无法判断结构，保留原顺序和原文措辞。标题、段落和问答标签沿用正文语言；英语、日语不得翻译成中文。",
         "请只返回 JSON，字段必须包含：final_markdown、section_map、refinement_notes、needs_review_sections。",
         "",
         f"当前文件: {input_paths.basename}.txt",

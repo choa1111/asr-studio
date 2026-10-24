@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel, Field
-from src.schemas import AsrCandidateName
+from src.schemas import AsrCandidateName, AsrLanguage
 
 
 class AsrSelection(BaseModel):
+    asr_language: AsrLanguage | None = None
     asr_candidate: AsrCandidateName | None = None
     secondary_asr_candidate: AsrCandidateName | Literal[""] | None = None
 

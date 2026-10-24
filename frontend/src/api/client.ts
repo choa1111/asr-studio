@@ -1,4 +1,8 @@
+import { t } from "../i18n";
+export type AsrLanguage = "auto" | "zh" | "en" | "ja";
+
 export interface AsrCandidate {
+  supported_languages?: string[];
   id: string;
   label: string;
   engine: string;
@@ -11,11 +15,14 @@ export interface AsrCandidate {
 }
 
 export interface AsrSelectionPayload {
+  asr_language?: AsrLanguage | null;
   asr_candidate?: string | null;
   secondary_asr_candidate?: string | null;
 }
 
 export interface ConfigResponse {
+  asr_languages?: string[];
+  default_asr_language?: string;
   asr_candidates: AsrCandidate[];
   profiles: string[];
   backends: string[];
@@ -31,6 +38,7 @@ export interface ConfigResponse {
 }
 
 export interface FrontendSettings {
+  asr_language?: string;
   fast_mode: boolean;
   ocr_fast_mode: boolean;
   codex_lb_base_url: string;
@@ -100,6 +108,9 @@ export interface UploadResponse {
 }
 
 export interface BatchItemState {
+  asr_language?: string;
+  asr_candidate?: string;
+  secondary_asr_candidate?: string;
   job_id: string;
   mode?: string;
   video_source?: string;
@@ -150,6 +161,7 @@ export interface JobInputSummary {
 }
 
 export interface JobState {
+  asr_language?: string;
   asr_candidate?: string;
   secondary_asr_candidate?: string;
   asr_engine?: string;
@@ -364,7 +376,7 @@ export interface PDFBookOCRTaskListResponse {
 
 function formatApiError(status: number, rawBody: string): string {
   if (!rawBody) {
-    return `请求失败：HTTP ${status}`;
+    return t('请求失败：HTTP {p0}', { p0: status });
   }
 
   try {
@@ -402,7 +414,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(formatApiError(response.status, detail));
+    throw new Error(t('请求失败：{p0}', { p0: formatApiError(response.status, detail) }));
   }
 
   return (await response.json()) as T;
@@ -464,7 +476,7 @@ export async function uploadFile(
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(formatApiError(response.status, detail));
+    throw new Error(t('请求失败：{p0}', { p0: formatApiError(response.status, detail) }));
   }
 
   return (await response.json()) as UploadResponse;
@@ -525,7 +537,7 @@ export async function uploadStageInput(
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(formatApiError(response.status, detail));
+    throw new Error(t('请求失败：{p0}', { p0: formatApiError(response.status, detail) }));
   }
 
   return (await response.json()) as StageInputUploadResponse;

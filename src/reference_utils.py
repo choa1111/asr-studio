@@ -38,7 +38,7 @@ META_LINE_MARKERS = (
     "I just need to return it",
     "Page 1 ends with",
     "The following is an ephemeral message",
-    "你现在要对一份中文 PDF 做 OCR 提取",
+    "你现在要对一份 PDF 做 OCR 提取",
     "任务要求",
     "只输出提取后的纯文本",
     "不要解释",
@@ -291,7 +291,7 @@ def is_meta_line(text: str) -> bool:
 
 def strip_leading_ascii_noise(text: str) -> str:
     # 年份、日期等数字属于正文，不能和模型偶发输出的 ASCII 噪声一起删除。
-    return re.sub(r"^[A-Za-z`~!@#$%^&*()_+\-=\[\]{}|\\:;\"'<>,.?/\s]+(?=[\u3400-\u9fff])", "", text).strip()
+    return re.sub(r"^t(?=第[一二三四五六七八九十百0-9]+[章节])", "", text).strip()
 
 
 def normalize_ocrmypdf_edge_line(text: str) -> str:
@@ -485,7 +485,7 @@ def sanitize_gemini_ocr_text(text: str) -> str:
                 continue
             continue
 
-        if not started and not is_cjk_content_line(line):
+        if not started and (line == "t>..." or not re.search(r"[^\W\d_]", line)):
             continue
 
         started = True
@@ -500,8 +500,8 @@ def sanitize_gemini_ocr_text(text: str) -> str:
 def build_gemini_ocr_prompt(reference_path: str | Path) -> str:
     return "\n".join(
         [
-            "你现在要对一份中文 PDF 做 OCR 提取。",
-            "任务要求：",
+            "你现在要对一份 PDF 做 OCR 提取。",
+            "任务要求：保留源语言（包括英语、日语及混合文字），不得翻译；参考材料语言独立于音频语言。",
             "1. 只输出提取后的纯文本。",
             "2. 不要解释，不要总结，不要添加说明。",
             "3. 保留原文顺序，尽量保留自然段。",
@@ -516,8 +516,8 @@ def build_gemini_ocr_prompt(reference_path: str | Path) -> str:
 def build_codex_ocr_prompt(reference_path: str | Path) -> str:
     return "\n".join(
         [
-            "你现在要对一份中文 PDF 做 OCR 提取。",
-            "任务要求：",
+            "你现在要对一份 PDF 做 OCR 提取。",
+            "任务要求：保留源语言（包括英语、日语及混合文字），不得翻译；参考材料语言独立于音频语言。",
             "1. 只输出提取后的纯文本。",
             "2. 不要解释，不要总结，不要添加说明。",
             "3. 保留原文顺序，尽量保留自然段。",
@@ -534,8 +534,8 @@ def build_codex_ocr_prompt(reference_path: str | Path) -> str:
 def build_codex_api_image_ocr_prompt(reference_path: str | Path, page_number: int, page_count: int) -> str:
     return "\n".join(
         [
-            "你现在要对一份中文 PDF 的单页图片做 OCR 提取。",
-            "任务要求：",
+            "你现在要对一份 PDF 的单页图片做 OCR 提取。",
+            "任务要求：保留源语言（包括英语、日语及混合文字），不得翻译；参考材料语言独立于音频语言。",
             "1. 只输出提取后的纯文本。",
             "2. 不要解释，不要总结，不要添加说明。",
             "3. 保留原文顺序，尽量保留自然段。",
@@ -554,8 +554,8 @@ def build_pdf_book_ocr_image_prompt(reference_path: str | Path, page_number: int
     """构造独立 PDF 书籍 OCR 使用的注释友好提示词。"""
     return "\n".join(
         [
-            "你现在要对一份中文 PDF 书籍的单页图片做 OCR 提取。",
-            "任务要求：",
+            "你现在要对一份 PDF 书籍的单页图片做 OCR 提取。",
+            "任务要求：保留源语言（包括英语、日语及混合文字），不得翻译；参考材料语言独立于音频语言。",
             "1. 只输出当前页面识别出的纯文本，不要解释、总结或添加说明。",
             "2. 按页面自然阅读顺序输出，尽量保留章节标题、自然段和原文换行。",
             "3. 必须识别页面中所有可见的书籍文字，包括正文、脚注、尾注、边注、编者注、译者注，以及这些注释对应的编号或符号。",

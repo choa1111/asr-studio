@@ -75,6 +75,14 @@ def first_bool(*values: bool | None) -> bool | None:
     return next((value for value in values if value is not None), None)
 
 
+def asr_language_override(request, frontend_settings) -> str | None:
+    # Explicit configs include frozen stage/job snapshots. A later Web default
+    # must never change their language when an old request omitted the field.
+    if request.asr_language is not None or request.config:
+        return request.asr_language
+    return frontend_settings.asr_language
+
+
 def secondary_asr_override(request, frontend_settings) -> str | None:
     # 空字符串是显式关闭，不能用 or 吞掉并重新启用全局默认。
     value = request.secondary_asr_candidate
@@ -87,6 +95,11 @@ def request_payload_with_effective_ocr_settings(request, loaded_settings, *, fre
     if hasattr(request, "fast_mode"):
         payload["fast_mode"] = loaded_settings.settings.llm.fast_mode
     if hasattr(request, "asr_candidate"):
+        from src.asr.registry import ASR_LANGUAGES
+        language = loaded_settings.settings.asr.language
+        # Older Whisper configs can use additional SDK codes. The request API
+        # offers four choices; None preserves other codes in the frozen config.
+        payload["asr_language"] = language if language in ASR_LANGUAGES else None
         payload["asr_candidate"] = loaded_settings.settings.asr.candidate or "whisper-existing"
         payload["secondary_asr_candidate"] = loaded_settings.settings.asr.secondary_candidate or ""
     if freeze_asr:
@@ -333,7 +346,7 @@ def run_job_rerun(*, app: FastAPI, job_id: str, payload: dict, state_path: Path)
                 llm_reasoning_effort=request.reasoning_effort or frontend_settings.reasoning_effort or None,
                 llm_fast_mode=request.fast_mode,
                 ocr_fast_mode=request.ocr_fast_mode,
-                asr_candidate=request.asr_candidate,
+                asr_candidate=request.asr_candidate, asr_language=request.asr_language,
                 secondary_asr_candidate=request.secondary_asr_candidate,
                 # job 的生成配置已经固化首次运行的 OCR 身份；重跑未显式覆盖时必须沿用原值。
                 ocr_backend=request.ocr_backend,
@@ -448,6 +461,7 @@ def execute_single_job(*, app: FastAPI, job_id: str, payload: dict) -> None:
         effective_refine_prompt = first_text(request.refine_prompt)
         model_overrides = ModelOverrides(
             asr_candidate=request.asr_candidate or frontend_settings.asr_candidate or None,
+            asr_language=asr_language_override(request, frontend_settings),
             secondary_asr_candidate=secondary_asr_override(request, frontend_settings),
             llm_model=request.model or frontend_settings.model or None,
             llm_reasoning_effort=request.reasoning_effort or frontend_settings.reasoning_effort or None,
@@ -507,7 +521,8 @@ def execute_single_job(*, app: FastAPI, job_id: str, payload: dict) -> None:
             project_root=root,
         )
         logger = setup_logging(job_loaded_settings.settings.runtime.log_level)
-        app.state.update_state(state_path, asr_candidate=job_loaded_settings.settings.asr.candidate or "whisper-existing",
+        app.state.update_state(state_path, asr_language=job_loaded_settings.settings.asr.language,
+                               asr_candidate=job_loaded_settings.settings.asr.candidate or "whisper-existing",
                                secondary_asr_candidate=job_loaded_settings.settings.asr.secondary_candidate or "",
                                request_payload=request_payload_with_effective_ocr_settings(request, job_loaded_settings))
         stages = [normalize_stage_name(stage_name) for stage_name in job_loaded_settings.settings.pipeline.stages]
@@ -722,6 +737,7 @@ def execute_batch_job(*, app: FastAPI, batch_id: str, payload: dict) -> None:
         effective_remote_concurrency = request.remote_concurrency or frontend_settings.remote_concurrency
         model_overrides = ModelOverrides(
             asr_candidate=request.asr_candidate or frontend_settings.asr_candidate or None,
+            asr_language=asr_language_override(request, frontend_settings),
             secondary_asr_candidate=secondary_asr_override(request, frontend_settings),
             llm_model=request.model or frontend_settings.model or None,
             llm_reasoning_effort=request.reasoning_effort or frontend_settings.reasoning_effort or None,
@@ -738,7 +754,8 @@ def execute_batch_job(*, app: FastAPI, batch_id: str, payload: dict) -> None:
             profile_name=effective_profile,
             project_root=root,
         )
-        app.state.update_state(state_path, asr_candidate=model_overrides.asr_candidate or base_loaded_settings.settings.asr.candidate or "whisper-existing",
+        app.state.update_state(state_path, asr_language=model_overrides.asr_language or base_loaded_settings.settings.asr.language,
+                               asr_candidate=model_overrides.asr_candidate or base_loaded_settings.settings.asr.candidate or "whisper-existing",
                                fast_mode=first_bool(model_overrides.llm_fast_mode, base_loaded_settings.settings.llm.fast_mode),
                                ocr_fast_mode=first_bool(model_overrides.ocr_fast_mode, base_loaded_settings.settings.reference.codex_ocr_fast_mode))
         job_specs, failed_runtimes = load_batch_job_specs(
@@ -892,6 +909,7 @@ def execute_stage_run(*, app: FastAPI, run_id: str, stage_name: str, payload: di
             loaded_settings,
             ModelOverrides(
                 asr_candidate=request.asr_candidate or frontend_settings.asr_candidate or None,
+                asr_language=asr_language_override(request, frontend_settings),
                 secondary_asr_candidate=secondary_asr_override(request, frontend_settings),
                 llm_model=request.model or frontend_settings.model or None,
                 llm_reasoning_effort=request.reasoning_effort or frontend_settings.reasoning_effort or None,
@@ -928,7 +946,7 @@ def execute_stage_run(*, app: FastAPI, run_id: str, stage_name: str, payload: di
             current_stage=normalized_stage_name,
             request_payload=request_payload_with_effective_ocr_settings(request, loaded_settings,
                 freeze_asr=normalized_stage_name == "transcribe"),
-            **({"asr_candidate": loaded_settings.settings.asr.candidate or "whisper-existing"} if normalized_stage_name == "transcribe" else {}),
+            **({"asr_language": loaded_settings.settings.asr.language, "asr_candidate": loaded_settings.settings.asr.candidate or "whisper-existing"} if normalized_stage_name == "transcribe" else {}),
         )
         with codex_lb_environment(frontend_settings):
             exit_code = run_stage(
@@ -1003,6 +1021,7 @@ def execute_stage_file_run(*, app: FastAPI, run_id: str, stage_name: str, payloa
             profile_name=base_loaded_settings.active_profile_name,
             model_overrides=ModelOverrides(
                 asr_candidate=request.asr_candidate or frontend_settings.asr_candidate or None,
+                asr_language=asr_language_override(request, frontend_settings),
                 # 文件槽仅接收单份 TXT；明确关闭配置/全局继承，不在联合读取层绕过配对校验。
                 secondary_asr_candidate="" if normalized_stage_name == "refine" else secondary_asr_override(request, frontend_settings),
                 llm_model=request.model or frontend_settings.model or None,
@@ -1040,7 +1059,7 @@ def execute_stage_file_run(*, app: FastAPI, run_id: str, stage_name: str, payloa
                 workspace_loaded_settings,
                 freeze_asr=normalized_stage_name == "transcribe",
             ),
-            **({"asr_candidate": workspace_loaded_settings.settings.asr.candidate or "whisper-existing"} if normalized_stage_name == "transcribe" else {}),
+            **({"asr_language": workspace_loaded_settings.settings.asr.language, "asr_candidate": workspace_loaded_settings.settings.asr.candidate or "whisper-existing"} if normalized_stage_name == "transcribe" else {}),
         )
         with codex_lb_environment(frontend_settings):
             exit_code = run_stage(

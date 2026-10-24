@@ -5,7 +5,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from src.asr.registry import ALIGNER_MODEL, ALIGNER_REVISION, Candidate
+from src.asr.registry import ALIGNER_MODEL, ALIGNER_REVISION, Candidate, QWEN_LANGUAGES, language_metadata, validate_candidate_language
 from src.asr.segmentation import ZeroDurationAlignmentError, aligned_segments, bounded_speech_intervals, lexical_text
 
 
@@ -29,9 +29,12 @@ class QwenBackend:
         from qwen_asr import Qwen3ASRModel
         from qwen_asr.inference.utils import MAX_FORCE_ALIGN_INPUT_SECONDS
 
+        validate_candidate_language(candidate, parameters.get("language", "zh"))
         if device == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA 不可用；不自动改用 CPU")
         self.candidate = candidate
+        self.language = parameters.get("language", "zh")
+        validate_candidate_language(candidate, self.language)
         self.dtype = torch.float16 if device == "cuda" else torch.float32
         self.limit = parameters.get("max_new_tokens", 2048)
         self.chunk_limit = MAX_FORCE_ALIGN_INPUT_SECONDS
@@ -83,7 +86,7 @@ class QwenBackend:
         self.model._infer_asr = recorded_infer
 
     def _transcribe_chunk(self, audio: Any, sample_rate: int, *, context: str) -> tuple[Any, list[tuple]]:
-        result = self.model.transcribe(audio=(audio, sample_rate), language="Chinese",
+        result = self.model.transcribe(audio=(audio, sample_rate), language=QWEN_LANGUAGES[getattr(self, "language", "zh")],
                                        context=context, return_time_stamps=True)[0]
         if not result.text.strip():
             raise ValueError("VAD 语音分块返回空文字，拒绝静默遗漏该分块")
@@ -99,6 +102,8 @@ class QwenBackend:
         min_tail = min(sample_rate, step)
         intervals = bounded_speech_intervals(speech_regions, len(audio), step,
                                             min_tail_samples=min_tail)
+        language = getattr(self, "language", "zh")
+        reported_languages = []
         segments = []
         zero_units = 0
         sdk_intervals = []
@@ -118,7 +123,7 @@ class QwenBackend:
                 except QwenGenerationLimitError as first_error:
                     # Only remove the observed source of term echo. Keep Chinese:
                     # automatic language ID misclassified this short mixed speech.
-                    if self.candidate.id != "qwen3-asr-0.6b" or not terms or split_recovery is not None:
+                    if language != "zh" or self.candidate.id != "qwen3-asr-0.6b" or not terms or split_recovery is not None:
                         raise
                     recovery = {"reason": "generation_token_limit", "first_error": str(first_error),
                                 "retry": {"stage": "asr", "language": "Chinese", "context_terms_count": 0}}
@@ -148,6 +153,7 @@ class QwenBackend:
                         pending.appendleft((midpoint, finish, recovery))
                         pending.appendleft((begin, midpoint, recovery))
                         continue
+                reported_languages.append(getattr(result, "language", ""))
                 alignment_error = None
                 try:
                     # Validate fine alignment without ever publishing invalid units.
@@ -160,7 +166,7 @@ class QwenBackend:
                     # No additional inference after a generation retry. SDK/OOM
                     # exceptions are outside validation catches and remain fatal.
                     if (isinstance(first_error, ZeroDurationAlignmentError)
-                            and self.candidate.id == "qwen3-asr-0.6b" and recovery is None and split_recovery is None
+                            and language == "zh" and self.candidate.id == "qwen3-asr-0.6b" and recovery is None and split_recovery is None
                             and _uses_japanese_script(result.text)):
                         recovery = {"reason": "zero_duration_alignment", "first_error": str(first_error),
                                     "retry": {"stage": "alignment", "language": "Japanese", "text_changed": False}}
@@ -235,6 +241,7 @@ class QwenBackend:
             warnings.append("长 VAD 语音区间按真实 PCM 上限切分；分块边界可能截断词语，需人工复核")
         all_coarse = bool(timestamp_fallbacks) and len(timestamp_fallbacks) == len(effective_intervals)
         return segments, {
+            **language_metadata(language, reported_languages),
             "timestamp_source": ("silero_vad_pcm_slice" if all_coarse else
                                  "mixed_forced_alignment_and_vad_pcm_slice" if timestamp_fallbacks else ALIGNER_MODEL),
             "aligner_revision": ALIGNER_REVISION,
@@ -244,7 +251,7 @@ class QwenBackend:
                                       "mixed_alignment_and_vad_audio_chunk" if timestamp_fallbacks else
                                       "text_segment_from_character_or_word_alignment"),
             "resolved_parameters": {"dtype": str(self.dtype), "batch_size": 1,
-                                    "max_new_tokens": self.limit, "context_terms": terms,
+                                    "max_new_tokens": self.limit, "context_terms": terms, "language": QWEN_LANGUAGES[language],
                                     "attn_implementation": "sdpa", "generation_logits": "last_token"},
             "chunking": {"strategy": "bounded Silero VAD PCM slices + official SDK", "max_seconds": self.chunk_seconds,
                          "sdk_target_seconds": self.chunk_limit, "overlap": 0,

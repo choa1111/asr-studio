@@ -97,6 +97,9 @@ class ReferenceSettings(AppBaseModel):
     ocr_languages: list[str] = Field(default_factory=list)
 
 
+AsrLanguage = Literal["auto", "zh", "en", "ja"]
+
+
 AsrCandidateName = Literal["whisper-existing", "qwen3-asr-1.7b", "qwen3-asr-0.6b", "paraformer-zh", "fun-asr-nano"]
 
 
@@ -109,7 +112,7 @@ class AsrSettings(AppBaseModel):
     chunk_seconds: float = Field(default=30.0, gt=0, le=30)
     terms: list[str] = Field(default_factory=list)
     engine: str
-    language: str
+    language: str = "zh"
     beam_size: int = 5
     vad_filter: bool = False
     condition_on_previous_text: bool = True

@@ -88,10 +88,10 @@ def aligned_segments(text: str, units: list[tuple[str, float, float]], duration:
         buffer += piece
         finish = max(finish, end)
         if any(c in piece for c in "。！？!?\n") or finish - begin >= 20 or len(buffer) >= 120:
-            result.append({"id": len(result) + 1, "start": begin, "end": finish, "text": buffer.strip()})
+            result.append({"id": len(result) + 1, "start": begin, "end": finish, "text": buffer})
             buffer = ""
     if buffer.strip():
-        result.append({"id": len(result) + 1, "start": begin, "end": finish, "text": buffer.strip()})
+        result.append({"id": len(result) + 1, "start": begin, "end": finish, "text": buffer})
     # Some real aligners collapse individual punctuation-delimited phrases.
     # Aggregate them with an adjacent actual interval; never invent durations.
     merged = []
@@ -113,6 +113,8 @@ def aligned_segments(text: str, units: list[tuple[str, float, float]], duration:
             pending = None
         segment["id"] = len(merged) + 1
         merged.append(segment)
+    for segment in merged:
+        segment["text"] = segment["text"].strip()
     if not merged:
         raise ZeroDurationAlignmentError("非空转录全部只有零时长对齐，无法提供可信音频区间")
     return merged

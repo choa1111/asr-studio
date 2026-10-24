@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from src.asr.registry import WEB_CANDIDATE_IDS
 from src.config_loader import ConfigLoadError, load_settings
-from src.schemas import AsrCandidateName
+from src.schemas import AsrCandidateName, AsrLanguage
 
 SETTINGS_RELATIVE_PATH = Path("data/jobs/frontend-settings.json")
 RETIRED_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5", "gpt-5.6")
@@ -26,6 +26,7 @@ class FrontendSettings(BaseModel):
     codex_lb_api_key: str = ""
     codex_lb_bypass_proxy: bool = False
     profile: str = ""
+    asr_language: AsrLanguage | None = None
     asr_candidate: AsrCandidateName | Literal[""] = ""
     secondary_asr_candidate: AsrCandidateName | Literal[""] | None = None
     backend: str = ""
@@ -48,6 +49,7 @@ class FrontendSettingsUpdate(BaseModel):
     clear_codex_lb_api_key: bool = False
     codex_lb_bypass_proxy: bool | None = None
     profile: str | None = None
+    asr_language: AsrLanguage | None = None
     asr_candidate: AsrCandidateName | Literal[""] | None = None
     secondary_asr_candidate: AsrCandidateName | Literal[""] | None = None
     backend: str | None = None
@@ -103,6 +105,7 @@ def save_frontend_settings(project_root: Path, update: FrontendSettingsUpdate) -
     for field_name in (
         "codex_lb_base_url",
         "profile",
+        "asr_language",
         "asr_candidate",
         "secondary_asr_candidate",
         "backend",
@@ -152,6 +155,7 @@ def frontend_settings_response(project_root: Path) -> dict[str, object]:
         default_asr_candidate = (configured_asr_candidate if configured_asr_candidate in WEB_CANDIDATE_IDS
                                  else "whisper-existing")
         default_secondary_asr_candidate = loaded_settings.settings.asr.secondary_candidate or ""
+        default_asr_language = loaded_settings.settings.asr.language
         configured_backends = loaded_settings.settings.llm.backends
         default_backend = configured_backends[0] if configured_backends else ""
         default_model = loaded_settings.settings.llm.model
@@ -171,6 +175,7 @@ def frontend_settings_response(project_root: Path) -> dict[str, object]:
         default_profile = ""
         default_asr_candidate = "whisper-existing"
         default_secondary_asr_candidate = ""
+        default_asr_language = "zh"
         default_backend = ""
         default_model = ""
         default_reasoning_effort = ""
@@ -191,6 +196,7 @@ def frontend_settings_response(project_root: Path) -> dict[str, object]:
         "codex_lb_bypass_proxy": settings.codex_lb_bypass_proxy,
         "profile": settings.profile or default_profile,
         "asr_candidate": settings.asr_candidate or default_asr_candidate,
+        "asr_language": settings.asr_language if settings.asr_language is not None else default_asr_language,
         "secondary_asr_candidate": settings.secondary_asr_candidate if settings.secondary_asr_candidate is not None else default_secondary_asr_candidate,
         "backend": settings.backend or default_backend,
         "remote_concurrency": settings.remote_concurrency,

@@ -24,7 +24,7 @@ Make questions, answers, follow-ups, and interruptions recognizable, but label q
 
 Flag unresolved, meaning-relevant uncertainty. A better-supported candidate may be used in the manuscript with a brief explanation of residual doubt. When equally supported alternatives change meaning, retain recognizable information and localize unrecoverable gaps. Do not replace recoverable speech with broad ellipses. Review entries should identify the excerpt, alternatives, brief evidence, and actual SEGMENT/WINDOW identifiers or positions when available. Do not invent timestamps.
 
-Write Chinese speech in Simplified Chinese; do not translate meaningful foreign-language speech merely because these instructions are in English. Exclude timestamps, model names, internal tags, and analysis from the manuscript. Check for changed negation or conditions, misattribution, missing questions or details, flattened jokes or self-correction, reordered turns, duplicate ASR material, invented speakers, mechanical repetition, obvious bad words, and unnecessary gaps.
+Write Chinese speech in Simplified Chinese; preserve English, Japanese, and mixed-language speech; do not translate. Use the source language for titles, headings, speaker labels, and Q&A labels, not necessarily Chinese. Exclude timestamps, model names, internal tags, and analysis from the manuscript. Check for changed negation or conditions, misattribution, missing questions or details, flattened jokes or self-correction, reordered turns, duplicate ASR material, invented speakers, mechanical repetition, obvious bad words, and unnecessary gaps.
 
 Return only a JSON object, without explanations or reasoning, with these fields:
 - `final_markdown`: the complete edited conversation, as a string.

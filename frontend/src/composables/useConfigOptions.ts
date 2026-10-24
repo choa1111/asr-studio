@@ -1,9 +1,12 @@
+import { t } from "../i18n";
 import { onMounted, ref } from "vue";
 
 import { getConfig, getFrontendSettings, type AsrCandidate } from "../api/client";
 
 export function useConfigOptions() {
   const profiles = ref<string[]>([]);
+  const asrLanguages = ref<string[]>(["zh"]);
+  const defaultAsrLanguage = ref("");
   const asrCandidates = ref<AsrCandidate[]>([]);
   const defaultAsrCandidate = ref("");
   const defaultSecondaryAsrCandidate = ref("");
@@ -27,6 +30,8 @@ export function useConfigOptions() {
     try {
       const config = await getConfig();
       profiles.value = config.profiles;
+      asrLanguages.value = config.asr_languages ?? ["zh"];
+      const configuredLanguage = config.default_asr_language || "zh";
       asrCandidates.value = config.asr_candidates ?? [];
       videoExtensions.value = config.video_extensions;
       referenceExtensions.value = config.reference_extensions;
@@ -36,6 +41,7 @@ export function useConfigOptions() {
 
       const settings = await getFrontendSettings();
       defaultAsrCandidate.value = settings.asr_candidate || "whisper-existing";
+      defaultAsrLanguage.value = settings.asr_language || configuredLanguage;
       defaultSecondaryAsrCandidate.value = settings.secondary_asr_candidate || "";
       defaultOcrModel.value = settings.ocr_model;
       defaultOcrReasoningEffort.value = settings.ocr_reasoning_effort;
@@ -44,7 +50,7 @@ export function useConfigOptions() {
       defaultOcrMaxConcurrency.value = settings.ocr_max_concurrency;
       defaultOcrSubmitIntervalSeconds.value = settings.ocr_submit_interval_seconds;
     } catch (caught) {
-      error.value = caught instanceof Error ? caught.message : "加载配置失败";
+      error.value = caught instanceof Error ? caught.message : t('加载配置失败');
     } finally {
       loading.value = false;
     }
@@ -54,6 +60,8 @@ export function useConfigOptions() {
 
   return {
     asrCandidates,
+    asrLanguages,
+    defaultAsrLanguage,
     defaultAsrCandidate,
     defaultSecondaryAsrCandidate,
     profiles,

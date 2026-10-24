@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../i18n";
 import { NButton, NFlex, NProgress, NTag, useMessage } from "naive-ui";
 import { computed, ref } from "vue";
 
@@ -65,7 +66,7 @@ async function handleDirectoryChange(event: Event) {
   uploadedDirectory.value = "";
 
   if (files.length === 0) {
-    message.warning(`所选目录中没有可上传的${props.label}文件。`);
+    message.warning(t('所选目录中没有可上传的{p0}文件。', { p0: props.label }));
     input.value = "";
     return;
   }
@@ -85,10 +86,10 @@ async function handleDirectoryChange(event: Event) {
       uploadedDirectory.value = lastResponse.directory;
       emit("update:modelValue", lastResponse.directory);
     }
-    const ignoredText = ignoredCount.value ? `，已跳过 ${ignoredCount.value} 个非目标文件` : "";
-    message.success(`已上传 ${files.length} 个${props.label}文件${ignoredText}`);
+    const ignoredText = ignoredCount.value ? t('，已跳过 {p0} 个非目标文件', { p0: ignoredCount.value }) : "";
+    message.success(t('已上传 {p0} 个{p1}文件{p2}', { p0: files.length, p1: props.label, p2: ignoredText }));
   } catch (caught) {
-    message.error(caught instanceof Error ? caught.message : "目录上传失败");
+    message.error(caught instanceof Error ? caught.message : t('目录上传失败'));
   } finally {
     uploading.value = false;
     input.value = "";
@@ -110,13 +111,13 @@ async function handleDirectoryChange(event: Event) {
         @change="handleDirectoryChange"
       />
       <n-button secondary type="primary" :loading="uploading" @click="openDirectoryPicker" class="remote-directory-upload__button">
-        {{ buttonText ?? `上传本机${label}目录` }}
+        {{ buttonText ?? t('上传本机{p0}目录', { p0: label }) }}
       </n-button>
       <n-tag v-if="uploadedDirectory" size="small" type="success" :bordered="false" class="remote-directory-upload__tag">
-        {{ uploadedCount }} 个文件
+        {{ uploadedCount }} {{ t('个文件') }}
       </n-tag>
       <n-tag v-if="ignoredCount" size="small" type="warning" :bordered="false">
-        跳过 {{ ignoredCount }} 个
+        {{ t('跳过') }} {{ ignoredCount }} {{ t('个') }}
       </n-tag>
     </n-flex>
     <n-progress

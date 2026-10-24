@@ -83,6 +83,8 @@ text
 
 可选 ASR 扩展已接入：旧配置继续使用 Whisper，可显式选择 Qwen3 1.7B/0.6B、SeACo Paraformer 或 Fun-ASR-Nano。配置/CLI/Web 选择、任务快照、时间戳校验和 metadata 说明见 [ASR_BACKENDS.md](ASR_BACKENDS.md)。各候选已完成真实短片段、10 分钟对话样本和阶段文件 API 运行；面向不同类型录音的人工质量验收尚未完成，不自动改默认模型。
 
+语言设置分别控制界面 locale 与录音语种，中文默认保持不变。任务支持显式 `zh` / `en` / `ja` / `auto` 音频语言，按各候选实际能力校验并传入引擎；校对保留源语言，不因切换界面而翻译。配置继承、模型范围与验证边界见 [ASR_BACKENDS.md](ASR_BACKENDS.md#音频语言)。
+
 已加入显式可选双 ASR：`asr.secondary_candidate` 指定不同的第二候选，串行推理、独立保存，并发布包含音频与产物哈希的配对状态。辅助失败或配对未完成不能进入联合校对。默认单 ASR 不变；本次未运行新双 ASR 推理，真实 GPU/质量验收由用户手动执行。
 
 ### 输入

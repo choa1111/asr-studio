@@ -301,6 +301,8 @@ def create_app(*, project_root: Path | None = None, run_tasks_inline: bool = Fal
         from src.asr.registry import candidate_options
         return {
             "asr_candidates": candidate_options(loaded_settings),
+            "asr_languages": ["auto", "zh", "en", "ja"],
+            "default_asr_language": loaded_settings.settings.asr.language,
             "profiles": sorted(loaded_settings.settings.profiles.keys()),
             "backends": [*VALID_REFINEMENT_BACKENDS, "both"],
             "configured_backends": list(loaded_settings.settings.llm.backends),

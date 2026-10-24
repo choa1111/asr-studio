@@ -11,9 +11,17 @@ import dataclasses
 import importlib.metadata
 import json
 import math
+import sys
 import time
 from pathlib import Path
 from typing import Any
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.asr.registry import QWEN_LANGUAGES, get_candidate, language_metadata, validate_candidate_language
 
 
 CANDIDATES = {
@@ -54,12 +62,17 @@ def main() -> int:
     parser.add_argument("--model-paths", required=True, type=Path)
     parser.add_argument("--audio", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--asr-language", default="zh", choices=["auto", "zh", "en", "ja"], help="Audio language; default preserves Chinese probes")
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
     parser.add_argument("--max-new-tokens", type=int, default=2048)
     parser.add_argument("--nano-dtype", choices=["fp32", "fp16", "bf16"], default="fp32")
     parser.add_argument("--expect-silence", action="store_true", help="Validate a zero-valued PCM silence input")
     parser.add_argument("--chunk-seconds", type=float, default=30.0)
     args = parser.parse_args()
+    try:
+        validate_candidate_language(get_candidate(args.candidate), args.asr_language)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.output.exists():
         parser.error("Refusing to overwrite existing spike evidence; choose a new output")
     if not 0 < args.chunk_seconds <= 30:
@@ -89,6 +102,7 @@ def main() -> int:
     raw_results = []
     intervals = []
     texts = []
+    reported_languages = []
 
     if args.candidate.startswith("qwen3"):
         from qwen_asr import Qwen3ASRModel
@@ -121,10 +135,11 @@ def main() -> int:
 
         model.model.generate = checked_generate
         loaded = time.monotonic()
-        result = model.transcribe(audio=(audio, sample_rate), language="Chinese",
+        result = model.transcribe(audio=(audio, sample_rate), language=QWEN_LANGUAGES[args.asr_language],
                                   return_time_stamps=True)[0]
         raw_results = [json_value(result)]
         texts = [result.text]
+        reported_languages = [getattr(result, "language", "")]
         if result.text.strip() and not result.time_stamps and not args.expect_silence:
             raise RuntimeError("Nonempty Qwen text without ForcedAligner timestamps")
         if result.time_stamps:
@@ -163,7 +178,7 @@ def main() -> int:
             end = min(len(audio), begin + step)
             pcm = torch.from_numpy(audio[begin:end])
             result = model.generate(input=pcm, cache={}, batch_size=1,
-                                    language="zh", itn=True,
+                                    language=args.asr_language, itn=True,
                                     max_length=args.max_new_tokens,
                                     llm_dtype=args.nano_dtype)[0]
             raw_results.append({"audio_start": begin / sample_rate,
@@ -199,6 +214,7 @@ def main() -> int:
         except importlib.metadata.PackageNotFoundError:
             pass
     payload = {
+        **language_metadata(args.asr_language, reported_languages),
         "candidate": args.candidate, "verification": verification,
         "input_kind": "digital_silence" if args.expect_silence else "speech",
         "model_snapshot": model_path,

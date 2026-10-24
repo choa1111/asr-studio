@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../i18n";
 import {
   NAlert,
   NButton,
@@ -23,12 +24,17 @@ import FastModeSwitch from "../components/FastModeSwitch.vue";
 import JobStatusCard from "../components/JobStatusCard.vue";
 import ProfileSelector from "../components/ProfileSelector.vue";
 import AsrCandidateSelector from "../components/AsrCandidateSelector.vue";
+import AsrLanguageSelector from "../components/AsrLanguageSelector.vue";
+import type { AsrLanguage } from "../api/client";
+import { isAsrLanguage, incompatibleCandidates } from "../composables/asrLanguage";
 import RemoteFileUpload from "../components/RemoteFileUpload.vue";
 import { useConfigOptions } from "../composables/useConfigOptions";
 
 const message = useMessage();
 const {
   asrCandidates,
+  asrLanguages,
+  defaultAsrLanguage,
   defaultAsrCandidate,
   defaultSecondaryAsrCandidate,
   activeProfile,
@@ -58,6 +64,7 @@ const form = reactive({
   output_dir: "",
   profile: "",
   asr_candidate: "",
+  asr_language: null as AsrLanguage | null,
   secondary_asr_candidate: "",
   fast_mode: null as boolean | null,
   ocr_fast_mode: null as boolean | null,
@@ -71,21 +78,22 @@ const form = reactive({
   refine_prompt: "",
 });
 
-const ocrReasoningOptions = [
-  { label: "低", value: "low" },
-  { label: "中", value: "medium" },
-  { label: "高", value: "high" },
-  { label: "很高", value: "xhigh" },
-];
-const contentTypeOptions = [
-  { label: "参考材料校对", value: "reference" },
-  { label: "对谈转录", value: "conversation" },
-];
+const ocrReasoningOptions = computed(() => ([
+  { label: t('低'), value: "low" },
+  { label: t('中'), value: "medium" },
+  { label: t('高'), value: "high" },
+  { label: t('很高'), value: "xhigh" },
+]));
+const contentTypeOptions = computed(() => ([
+  { label: t('参考材料校对'), value: "reference" },
+  { label: t('对谈转录'), value: "conversation" },
+]));
 const videoAccept = computed(() => videoExtensions.value.join(","));
 const referenceAccept = computed(() => referenceExtensions.value.join(","));
 const glossaryAccept = ".txt,.md";
 const isConversation = computed(() => form.content_type === "conversation");
 
+watch(defaultAsrLanguage, value => { if (!form.asr_language) form.asr_language = isAsrLanguage(value) ? value : null; });
 watch(defaultAsrCandidate, value => { if (!form.asr_candidate) form.asr_candidate = value; });
 watch(defaultSecondaryAsrCandidate, value => { form.secondary_asr_candidate = value; });
 
@@ -143,7 +151,7 @@ function startPolling(jobId: string) {
   stopPolling();
   pollHandle.value = window.setInterval(() => {
     void refreshJob(jobId).catch((caught) => {
-      message.error(caught instanceof Error ? caught.message : "刷新任务状态失败");
+      message.error(caught instanceof Error ? caught.message : t('刷新任务状态失败'));
       stopPolling();
     });
   }, 2000);
@@ -173,7 +181,7 @@ async function loadDefaultRefinePrompt() {
       form.refine_prompt = response.prompt;
     }
   } catch (caught) {
-    message.error(caught instanceof Error ? caught.message : "读取阶段六默认指令失败");
+    message.error(caught instanceof Error ? caught.message : t('读取阶段六默认指令失败'));
   } finally {
     promptLoading.value = false;
   }
@@ -185,19 +193,20 @@ async function handleJobRerun(jobId: string) {
 }
 
 async function submit() {
+  if (incompatibleCandidates(asrCandidates.value, form.asr_language, form.asr_candidate, form.secondary_asr_candidate).length) { message.warning(t('所选模型不支持此音频语言，请更改语言或显式选择兼容模型。')); return; }
   if (!form.video || !form.output_dir) {
-    message.warning("视频和服务器默认输出目录是必填项。");
+    message.warning(t('视频和服务器默认输出目录是必填项。'));
     return;
   }
   if (!isConversation.value && !form.reference) {
-    message.warning("参考材料校对模式下参考源是必填项。");
+    message.warning(t('参考材料校对模式下参考源是必填项。'));
     return;
   }
   if (
     !isConversation.value
     && (form.ocr_max_concurrency === null || form.ocr_submit_interval_seconds === null)
   ) {
-    message.warning("请填写 PDF OCR 投递间隔和最大并发数。");
+    message.warning(t('请填写 PDF OCR 投递间隔和最大并发数。'));
     return;
   }
   submitting.value = true;
@@ -209,6 +218,7 @@ async function submit() {
       content_type: form.content_type,
       profile: form.profile || null,
       asr_candidate: form.asr_candidate || null,
+    asr_language: form.asr_language,
       secondary_asr_candidate: form.secondary_asr_candidate,
       backend: "codex_api",
       ocr_backend: "codex_api",
@@ -225,9 +235,9 @@ async function submit() {
     });
     await refreshJob(response.job_id);
     startPolling(response.job_id);
-    message.success(`任务已成功提交：${response.job_id}`);
+    message.success(t('任务已成功提交：{p0}', { p0: response.job_id }));
   } catch (caught) {
-    message.error(caught instanceof Error ? caught.message : "提交失败");
+    message.error(caught instanceof Error ? caught.message : t('提交失败'));
   } finally {
     submitting.value = false;
   }
@@ -251,7 +261,7 @@ onBeforeUnmount(stopPolling);
 <template>
   <div class="workbench-page single-job-view">
     <section class="page-heading">
-      <div><h2>新建单任务</h2><p>左侧上传录屏与参考源，右侧选择本次配置。提交后在下方查看进度与整理结果。</p></div>
+      <div><h2>{{ t('新建单任务') }}</h2><p>{{ t('左侧上传录屏与参考源，右侧选择本次配置。提交后在下方查看进度与整理结果。') }}</p></div>
     </section>
 
     <n-alert v-if="error" type="error" :title="error" :bordered="false" class="glass-alert" />
@@ -260,8 +270,8 @@ onBeforeUnmount(stopPolling);
       <div class="workspace-primary">
         <n-card class="view-card form-panel" :bordered="false">
             <div class="form-section">
-              <h3 class="form-section-title">输入文件</h3>
-              <n-form-item label="任务类型" required>
+              <h3 class="form-section-title">{{ t('输入文件') }}</h3>
+              <n-form-item :label="t('任务类型')" required>
                 <n-radio-group v-model:value="form.content_type" size="medium">
                   <n-radio-button
                     v-for="item in contentTypeOptions"
@@ -272,80 +282,83 @@ onBeforeUnmount(stopPolling);
                   </n-radio-button>
                 </n-radio-group>
               </n-form-item>
-              <n-form-item label="视频文件" required>
+              <n-form-item :label="t('视频文件')" required>
                 <n-space vertical class="w-full">
                   <RemoteFileUpload
                     v-model="form.video"
                     kind="video"
-                    label="视频文件"
+                    :label="t('视频文件')"
                     :accept="videoAccept"
-                    button-text="选择并上传本机视频"
+                    :button-text="t('选择并上传本机视频')"
                   />
-                  <n-input v-model:value="form.video" readonly placeholder="上传后自动生成服务器路径" />
+                  <n-input v-model:value="form.video" readonly :placeholder="t('上传后自动生成服务器路径')" />
                 </n-space>
               </n-form-item>
-              <n-form-item v-if="!isConversation" label="参考源文件或 URL" required>
+              <n-form-item v-if="!isConversation" :label="t('参考源文件或 URL')" required>
                 <n-space vertical class="w-full">
-                  <n-input v-model:value="form.reference" placeholder="可粘贴 https:// 网址，或上传本机参考文件" />
+                  <n-input v-model:value="form.reference" :placeholder="t('可粘贴 https:// 网址，或上传本机参考文件')" />
                   <RemoteFileUpload
                     v-model="form.reference"
                     kind="reference"
-                    label="参考源文件"
+                    :label="t('参考源文件')"
                     :accept="referenceAccept"
-                    button-text="选择并上传本机参考源"
+                    :button-text="t('选择并上传本机参考源')"
                   />
                 </n-space>
               </n-form-item>
-              <n-form-item label="成果获取方式" required>
+              <n-form-item :label="t('成果获取方式')" required>
                 <n-alert type="info" :bordered="false" class="server-output-note">
                   <div class="server-output-note__body">
-                    <span>处理完成后，到任务列表点击“下载结果”选择 Markdown 或 TXT。</span>
-                    <small>服务器默认保存目录：{{ form.output_dir || "配置加载中..." }}</small>
+                    <span>{{ t('处理完成后，到任务列表点击“下载结果”选择 Markdown 或 TXT。') }}</span>
+                    <small>{{ t('服务器默认保存目录：') }}{{ form.output_dir || t('配置加载中...') }}</small>
                   </div>
                 </n-alert>
               </n-form-item>
             </div>
         </n-card>
       </div>
-      <aside class="workspace-inspector" aria-label="本次任务配置">
+      <aside class="workspace-inspector" :aria-label="t('本次任务配置')">
         <n-card class="view-card form-panel" :bordered="false">
             <div class="form-section">
-              <h3 class="form-section-title">常用配置 · 仅本次任务</h3>
-              <n-form-item label="语音转文字模型">
-                <AsrCandidateSelector v-model="form.asr_candidate" v-model:secondary-candidate="form.secondary_asr_candidate" :options="asrCandidates" :loading="loading" />
+              <h3 class="form-section-title">{{ t('常用配置 · 仅本次任务') }}</h3>
+              <n-form-item :label="t('语音转文字模型')">
+                <div class="w-full">
+                  <AsrLanguageSelector v-model="form.asr_language" :languages="asrLanguages" :inherited-language="defaultAsrLanguage" />
+                  <AsrCandidateSelector :language="form.asr_language" v-model="form.asr_candidate" v-model:secondary-candidate="form.secondary_asr_candidate" :options="asrCandidates" :loading="loading" />
+                </div>
               </n-form-item>
-              <n-form-item label="配置方案">
+              <n-form-item :label="t('配置方案')">
                 <ProfileSelector v-model="form.profile" :options="profiles" :loading="loading" />
               </n-form-item>
-              <section class="fast-mode-options" aria-label="快速模式">
-                <h4>快速模式 · 仅本次任务</h4>
-                <FastModeSwitch v-model="form.fast_mode" label="AI 精修快速模式" :disabled="loading" />
-                <FastModeSwitch v-if="!isConversation" v-model="form.ocr_fast_mode" label="PDF OCR 快速模式" :disabled="loading" />
-                <p class="prompt-hint">通过 CPA 请求快速服务，可能增加额度消耗或费用；不改变模型或推理强度。PDF 开关仅在实际执行 OCR 时生效。</p>
+              <section class="fast-mode-options" :aria-label="t('快速模式')">
+                <h4>{{ t('快速模式 · 仅本次任务') }}</h4>
+                <FastModeSwitch v-model="form.fast_mode" :label="t('AI 精修快速模式')" :disabled="loading" />
+                <FastModeSwitch v-if="!isConversation" v-model="form.ocr_fast_mode" :label="t('PDF OCR 快速模式')" :disabled="loading" />
+                <p class="prompt-hint">{{ t('通过 CPA 请求快速服务，可能增加额度消耗或费用；不改变模型或推理强度。PDF 开关仅在实际执行 OCR 时生效。') }}</p>
               </section>
               <details class="advanced-options">
-                <summary>高级参数 · OCR、术语与整理指令</summary>
+                <summary>{{ t('高级参数 · OCR、术语与整理指令') }}</summary>
                 <n-grid :cols="2" :x-gap="12" :y-gap="0" responsive="screen" item-responsive>
                   <n-grid-item span="2">
-                    <n-form-item label="术语词表">
+                    <n-form-item :label="t('术语词表')">
                       <n-space vertical class="w-full">
-                        <RemoteFileUpload v-model="form.glossary_file" kind="glossary" label="术语词表" :accept="glossaryAccept" button-text="选择并上传本机词表" />
-                        <n-input v-model:value="form.glossary_file" readonly placeholder="可选，上传后自动生成服务器路径" />
+                        <RemoteFileUpload v-model="form.glossary_file" kind="glossary" :label="t('术语词表')" :accept="glossaryAccept" :button-text="t('选择并上传本机词表')" />
+                        <n-input v-model:value="form.glossary_file" readonly :placeholder="t('可选，上传后自动生成服务器路径')" />
                       </n-space>
                     </n-form-item>
                   </n-grid-item>
                 <n-grid-item v-if="!isConversation" span="2 m:1">
-                  <n-form-item label="PDF OCR 模型">
-                    <n-input v-model:value="form.ocr_model" placeholder="例如 gpt-6-luna" />
+                  <n-form-item :label="t('PDF OCR 模型')">
+                    <n-input v-model:value="form.ocr_model" :placeholder="t('例如 gpt-6-luna')" />
                   </n-form-item>
                 </n-grid-item>
                 <n-grid-item v-if="!isConversation" span="2 m:1">
-                  <n-form-item label="PDF OCR 推理强度">
+                  <n-form-item :label="t('PDF OCR 推理强度')">
                     <n-select v-model:value="form.ocr_reasoning_effort" :options="ocrReasoningOptions" />
                   </n-form-item>
                 </n-grid-item>
                 <n-grid-item v-if="!isConversation" span="2 m:1">
-                  <n-form-item label="页面投递间隔（秒）" required>
+                  <n-form-item :label="t('页面投递间隔（秒）')" required>
                     <n-input-number
                       v-model:value="form.ocr_submit_interval_seconds"
                       :min="0"
@@ -355,7 +368,7 @@ onBeforeUnmount(stopPolling);
                   </n-form-item>
                 </n-grid-item>
                 <n-grid-item v-if="!isConversation" span="2 m:1">
-                  <n-form-item label="最大在途请求数" required>
+                  <n-form-item :label="t('最大在途请求数')" required>
                     <n-input-number
                       v-model:value="form.ocr_max_concurrency"
                       :min="1"
@@ -365,29 +378,29 @@ onBeforeUnmount(stopPolling);
                   </n-form-item>
                 </n-grid-item>
                 <n-grid-item span="2 m:1">
-                  <n-form-item label="材料名称">
-                    <n-input v-model:value="form.book_name" placeholder="例如：示例材料；可选，用于 ASR 提示词" />
+                  <n-form-item :label="t('材料名称')">
+                    <n-input v-model:value="form.book_name" :placeholder="t('例如：示例材料；可选，用于 ASR 提示词')" />
                   </n-form-item>
                 </n-grid-item>
                 <n-grid-item span="2">
-                  <n-form-item label="章节或部分">
-                    <n-input v-model:value="form.chapter" placeholder="例如：第一部分；可选，用于 ASR 提示词" />
+                  <n-form-item :label="t('章节或部分')">
+                    <n-input v-model:value="form.chapter" :placeholder="t('例如：第一部分；可选，用于 ASR 提示词')" />
                   </n-form-item>
                 </n-grid-item>
                 <n-grid-item span="2">
-                  <n-form-item label="阶段六指令">
+                  <n-form-item :label="t('阶段六指令')">
                     <n-space vertical class="w-full">
                       <n-input
                         v-model:value="form.refine_prompt"
                         type="textarea"
                         :autosize="{ minRows: 10, maxRows: 18 }"
                         :loading="promptLoading"
-                        placeholder="读取默认阶段六指令中..."
+                        :placeholder="t('读取默认阶段六指令中...')"
                       />
                       <n-flex justify="space-between" align="center" :size="12" wrap>
-                        <span class="prompt-hint">文本框内为当前默认指令，可直接在此基础上调整；不修改时提交会使用项目默认指令。</span>
+                        <span class="prompt-hint">{{ t('文本框内为当前默认指令，可直接在此基础上调整；不修改时提交会使用项目默认指令。') }}</span>
                         <n-button size="small" secondary :disabled="!defaultRefinePrompt" @click="resetRefinePrompt">
-                          恢复默认指令
+                          {{ t('恢复默认指令') }}
                         </n-button>
                       </n-flex>
                     </n-space>
@@ -402,13 +415,13 @@ onBeforeUnmount(stopPolling);
             <template #icon>
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             </template>
-            开始整理
+            {{ t('开始整理') }}
           </n-button>
         </n-flex>
         </n-card>
       </aside>
     </n-form>
-    <JobStatusCard v-if="jobState" title="当前任务" :state="jobState" default-expanded @rerun="handleJobRerun" />
+    <JobStatusCard v-if="jobState" :title="t('当前任务')" :state="jobState" default-expanded @rerun="handleJobRerun" />
   </div>
 </template>
 
